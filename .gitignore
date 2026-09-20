@@ -12,3 +12,6 @@ projects/*
 projects/example/reports/*
 !projects/example/reports/.gitkeep
 projects/example/CATALOG.md
+
+# Browser-automation scratch files (page snapshots, screenshots)
+.playwright-mcp/

@@ -74,6 +74,16 @@ def _load_script_module(script_path):
     return module
 
 
+def _drop_traces(run_dir, row_dir):
+    """Delete a row's Playwright traces. A trace records every typed value, so rows that type
+    secrets (catalog `sensitive=True`) must never leave one on disk, even after a failure."""
+    path = os.path.join(run_dir, row_dir)
+    if os.path.isdir(path):
+        for name in os.listdir(path):
+            if name.startswith("trace_") and name.endswith(".zip"):
+                os.remove(os.path.join(path, name))
+
+
 def _prune_traces(results, run_id):
     """Traces are multi-MB apiece and a full run makes ~40. Keep only the ones
     attached to a failure — that's the only time you go time-travelling."""
@@ -169,6 +179,8 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
             result["error"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         finally:
             browser.stop_row_session()
+            if row.get("sensitive"):
+                _drop_traces(config.run_dir(run_id), row_dir_name(row["order"], row["script"]))
             result["duration_s"] = time.monotonic() - start
             result["screenshots"] = ctx._screenshots
             result["notes"].extend(ctx._notes)
