@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KD-TTOOL — live run</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c2230; --line: #272e3b;
+    --text: #d7dde6; --dim: #7d8797; --accent: #4c8dff;
+    --pass: #3fb950; --fail: #f85149; --skip: #8b949e; --run: #d29922;
+    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .meta { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  header .spacer { flex: 1; }
+  .counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 13px; }
+  .counts b { font-weight: 600; }
+  .c-pass b { color: var(--pass); } .c-fail b { color: var(--fail); } .c-skip b { color: var(--skip); }
+  .pill {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);
+  }
+  .pill.live { color: var(--run); border-color: #4a3c14; background: #241d0b; }
+  .pill.done { color: var(--pass); border-color: #1c3d23; background: #0f2113; }
+
+  main { flex: 1; display: grid; grid-template-columns: 290px 1fr; min-height: 0; }
+
+  /* ---- left rail: the row grid ---- */
+  #rows { border-right: 1px solid var(--line); overflow-y: auto; background: var(--panel); }
+  .row {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 9px 14px; background: none; border: 0; border-bottom: 1px solid #1b212c;
+    color: var(--dim); font: inherit; cursor: pointer;
+  }
+  .row:hover { background: var(--panel-2); }
+  .row[aria-current="true"] { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); color: var(--text); }
+  .row .num { font-family: var(--mono); font-size: 11px; color: var(--dim); min-width: 24px; }
+  .row .area { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .dur { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .row.pass, .row.fail { color: var(--text); }
+  .mark { width: 16px; text-align: center; font-size: 13px; line-height: 1; }
+  .row.pass .mark { color: var(--pass); } .row.fail .mark { color: var(--fail); }
+  .row.running .mark { color: var(--run); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- right pane: log + shots ---- */
+  #detail { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  #detail-head {
+    padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex;
+    align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  #detail-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  #detail-head code { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  #detail-head #d-script { flex-basis: 100%; color: #9dc1ff; }
+  #detail-head #d-script::before { content: "Script run: "; color: var(--dim); }
+  #log { flex: 1; overflow-y: auto; padding: 14px 18px 40px; }
+  .empty { color: var(--dim); font-style: italic; padding: 24px 0; }
+
+  .line { display: flex; gap: 12px; padding: 2px 0; font-family: var(--mono); font-size: 12.5px; }
+  .line .t { color: #545d6b; flex-shrink: 0; }
+  .line .m { white-space: pre-wrap; word-break: break-word; }
+  .line.note .m { color: #a8b3c4; font-family: inherit; font-size: 13px; }
+  .line.err .m { color: var(--fail); }
+
+  .shots { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px 62px; }
+  .shot { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #000; cursor: zoom-in; width: 190px; }
+  .shot img { display: block; width: 100%; height: 120px; object-fit: cover; object-position: top; }
+  .shot span {
+    display: block; padding: 5px 8px; font-family: var(--mono); font-size: 11px;
+    color: var(--dim); background: var(--panel-2); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  pre.trace {
+    margin: 10px 0 0 62px; padding: 12px 14px; background: #1a1013; border: 1px solid #3d1d1f;
+    border-radius: 6px; color: #ff9d96; font-family: var(--mono); font-size: 12px;
+    white-space: pre-wrap; word-break: break-word; overflow-x: auto;
+  }
+  .tracecmd {
+    margin: 10px 0 0 62px; padding: 9px 12px; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 6px; font-family: var(--mono); font-size: 12px; color: #9dc1ff;
+    overflow-x: auto; white-space: nowrap;
+  }
+
+
+  /* ---- big picture strip ---- */
+  #bigpic { padding: 12px 18px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .bp-line { display: flex; align-items: baseline; gap: 8px 22px; flex-wrap: wrap; }
+  #bp-now { font-size: 20px; font-weight: 650; }
+  #bp-counts { display: flex; gap: 6px 16px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
+  #bp-counts b { font-weight: 650; }
+  #bp-counts .c-pass b { color: var(--pass); } #bp-counts .c-fail b { color: var(--fail); }
+  #bp-counts .c-run b { color: var(--run); }
+  .bp-bar { display: flex; height: 10px; margin-top: 10px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .bp-bar i { display: block; height: 100%; transition: width .3s; }
+  .bp-bar .p { background: var(--pass); } .bp-bar .f { background: var(--fail); }
+  .bp-bar .s { background: var(--skip); } .bp-bar .r { background: var(--run); }
+
+  /* ---- grouped test list ---- */
+  .group { padding: 12px 14px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+  .row .title { flex: 1; min-width: 0; }
+  .row .title small { display: block; font-size: 11px; color: var(--dim); }
+  .row.pending .title, .row.skipped .title { color: var(--dim); }
+
+  /* ---- what this test does (from the catalog) ---- */
+  #about { border-bottom: 1px solid var(--line); background: var(--panel); }
+  #about[hidden] { display: none; }
+  #about summary { list-style: none; cursor: pointer; padding: 11px 18px; display: flex; gap: 14px; align-items: center; }
+  #about summary::-webkit-details-marker { display: none; }
+  #about summary:hover { background: var(--panel-2); }
+  #about summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  #about .sum { flex: 1; font-size: 15px; }
+  #about .toggle {
+    display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+    padding: 5px 11px; border: 1px solid var(--accent); border-radius: 6px;
+    color: var(--accent); font-size: 12.5px; font-weight: 600; background: transparent;
+  }
+  #about summary:hover .toggle { background: var(--accent); color: #fff; }
+  #about .toggle svg { width: 14px; height: 14px; transition: transform .15s; }
+  #about[open] .toggle svg { transform: rotate(180deg); }
+  #about .toggle .t-open { display: none; }
+  #about[open] .toggle .t-open { display: inline; }
+  #about[open] .toggle .t-closed { display: none; }
+  #about .body { padding: 12px 18px 14px; max-height: 40vh; overflow-y: auto; }
+  #about h3 { margin: 10px 0 3px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  #about h3:first-child { margin-top: 0; }
+  #about p { margin: 0; max-width: 78ch; }
+  #about .money { color: var(--run); }
+  .steps-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin: 0 0 8px; }
+
+  /* ---- lightbox ---- */
+  #lightbox {
+    position: fixed; inset: 0; background: rgba(3,5,9,.94); display: none;
+    align-items: flex-start; justify-content: center; overflow: auto; z-index: 50; cursor: zoom-out;
+  }
+  #lightbox.open { display: flex; }
+  #lightbox img { max-width: min(1100px, 96vw); margin: 3vh 0; border: 1px solid var(--line); }
+
+  @media (max-width: 820px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 180px 1fr; }
+    #rows { border-right: 0; border-bottom: 1px solid var(--line); }
+    .shots, pre.trace, .tracecmd { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>KD-TTOOL</h1>
+  <span class="meta" id="target">connecting…</span>
+  <span class="pill" id="mode"></span>
+  <span class="spacer"></span>
+  <span class="pill live" id="state">waiting</span>
+</header>
+
+<section id="bigpic" aria-live="polite">
+  <div class="bp-line"><span id="bp-now">Waiting for the run to start…</span><span id="bp-counts"></span></div>
+  <div class="bp-bar" aria-hidden="true"><i class="p"></i><i class="f"></i><i class="s"></i><i class="r"></i></div>
+</section>
+
+<main>
+  <div id="rows"></div>
+  <section id="detail">
+    <div id="detail-head"><h2 id="d-area">—</h2><code id="d-meta"></code><code id="d-script"></code></div>
+    <details id="about" hidden></details>
+    <div id="log"><p class="empty">Waiting for the run to start…</p></div>
+  </section>
+</main>
+
+<div id="lightbox"><img alt=""></div>
+
+<script>
+const rows = new Map();      // order -> {area, script, money, status, duration, error, traceDir, entries[]}
+let order = [];              // display order
+let selected = null;         // currently shown row
+let pinned = false;          // true once the user clicks a row: stop auto-following
+let seq = 0;
+let finished = false;
+let lastShown = null;       // which row the log pane last rendered
+
+const $ = (id) => document.getElementById(id);
+const MARK = { pending: "·", running: "◜", pass: "✓", fail: "✕", skipped: "⏭" };
+
+function clock(ts) {
+  const d = new Date(ts * 1000);
+  return d.toTimeString().slice(0, 8);
+}
+
+function ensureRow(o, data) {
+  if (!rows.has(o)) {
+    rows.set(o, { area: "", script: "", money: false, status: "pending", entries: [] });
+    order.push(o);
+  }
+  Object.assign(rows.get(o), data || {});
+  return rows.get(o);
+}
+
+function renderRows() {
+  const host = $("rows");
+  host.innerHTML = "";
+  let lastArea = null;
+  for (const o of order) {
+    const r = rows.get(o);
+    if (r.area !== lastArea) {
+      const g = document.createElement("div");
+      g.className = "group";
+      g.textContent = r.area;
+      host.appendChild(g);
+      lastArea = r.area;
+    }
+    const btn = document.createElement("button");
+    btn.className = "row " + r.status;
+    btn.setAttribute("aria-current", String(o === selected));
+    btn.innerHTML =
+      `<span class="mark">${MARK[r.status] || "·"}</span>` +
+      `<span class="title"></span>` +
+      `<span class="dur">${r.duration != null ? r.duration.toFixed(1) + "s" : ""}</span>`;
+    btn.querySelector(".title").textContent = (r.money ? "💰 " : "") + (r.title || r.area);
+    btn.onclick = () => { pinned = true; select(o); };
+    host.appendChild(btn);
+    if (o === selected) requestAnimationFrame(() => btn.scrollIntoView({ block: "nearest" }));
+  }
+}
+
+function select(o) {
+  selected = o;
+  renderRows();
+  renderDetail();
+}
+
+let aboutOpen = false;       // stays open/closed as you move between tests
+let aboutFor = null;
+function renderAbout(r) {
+  const box = $("about");
+  const sum = r.summary || (r.description || "").split(/(?<=\.)\s/)[0];
+  if (!sum && !r.description) { box.hidden = true; return; }
+  box.hidden = false;
+  if (aboutFor === selected) return;      // don't rebuild (and collapse) it on every new log line
+  aboutFor = selected;
+  box.innerHTML = "";
+  const head = document.createElement("summary");
+  const s = document.createElement("span"); s.className = "sum"; s.textContent = sum;
+  const toggle = document.createElement("span"); toggle.className = "toggle";
+  toggle.innerHTML = '<span class="t-closed">Show details</span><span class="t-open">Hide details</span>' +
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6l5 5 5-5"/></svg>';
+  head.append(s, toggle);
+  const body = document.createElement("div"); body.className = "body";
+  const add = (label, text, cls) => {
+    if (!text) return;
+    const h = document.createElement("h3"); h.textContent = label;
+    const p = document.createElement("p"); p.textContent = text;
+    if (cls) p.className = cls;
+    body.append(h, p);
+  };
+  add("In detail", r.description);
+  add("What it checks", r.verifies);
+  if (r.money) add("Careful", "This test spends real money. It only runs when you start the tool with --confirm-money.", "money");
+  box.append(head, body);
+  box.open = aboutOpen;
+  box.ontoggle = () => { aboutOpen = box.open; };
+}
+
+function renderDetail() {
+  const r = rows.get(selected);
+  const log = $("log");
+  if (!r) { log.innerHTML = '<p class="empty">Waiting for the run to start…</p>'; return; }
+
+  $("d-area").textContent = r.title || r.area;
+  $("d-meta").textContent = `${r.area} · test ${selected}` + (r.viewport ? ` · ${r.viewport}` : "");
+  $("d-script").textContent = r.script ? `scripts/${r.script}` : "none (done by hand)";
+  renderAbout(r);
+
+  if (!r.entries.length && r.status === "pending") {
+    log.innerHTML = '<p class="empty">Not started yet.</p>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  const lbl = document.createElement("p"); lbl.className = "steps-label"; lbl.textContent = "Step by step";
+  frag.appendChild(lbl);
+  let shots = null;  // group consecutive screenshots into one thumbnail strip
+
+  for (const e of r.entries) {
+    if (e.kind === "screenshot") {
+      if (!shots) { shots = document.createElement("div"); shots.className = "shots"; frag.appendChild(shots); }
+      const fig = document.createElement("div");
+      fig.className = "shot";
+      const img = document.createElement("img");
+      img.src = "/shot/" + e.path.split("/").map(encodeURIComponent).join("/");
+      img.alt = e.label;
+      img.loading = "lazy";
+      const cap = document.createElement("span");
+      cap.textContent = e.label;
+      fig.append(img, cap);
+      fig.onclick = () => openLightbox(img.src, e.label);
+      shots.appendChild(fig);
+      continue;
+    }
+    shots = null;
+    const line = document.createElement("div");
+    line.className = "line " + (e.kind === "note" ? "note" : e.level === "error" ? "err" : "");
+    const t = document.createElement("span"); t.className = "t"; t.textContent = clock(e.ts);
+    const m = document.createElement("span"); m.className = "m"; m.textContent = e.text;
+    line.append(t, m);
+    frag.appendChild(line);
+  }
+
+  if (r.status === "fail" && r.error) {
+    const pre = document.createElement("pre");
+    pre.className = "trace";
+    pre.textContent = r.error.trim();
+    frag.appendChild(pre);
+    if (r.traceDir) {
+      const cmd = document.createElement("div");
+      cmd.className = "tracecmd";
+      cmd.textContent = `npx playwright show-trace reports/${window.__runId}/${r.traceDir}/trace_1.zip`;
+      frag.appendChild(cmd);
+    }
+  }
+  if (r.status === "skipped" && r.reason) {
+    const p = document.createElement("p");
+    p.className = "empty";
+    p.textContent = "Skipped — " + r.reason;
+    frag.appendChild(p);
+  }
+
+  const switched = lastShown !== selected;
+  const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 60;
+  log.innerHTML = "";
+  log.appendChild(frag);
+  // Opening a test starts at the top (its description, first steps, first screenshots);
+  // a test that is still running keeps following the newest line.
+  if (switched) log.scrollTop = r.status === "running" ? log.scrollHeight : 0;
+  else if (stick && r.status === "running") log.scrollTop = log.scrollHeight;
+  lastShown = selected;
+}
+
+function openLightbox(src, alt) {
+  const box = $("lightbox");
+  const img = box.querySelector("img");
+  img.src = src; img.alt = alt;
+  box.classList.add("open");
+}
+$("lightbox").onclick = () => $("lightbox").classList.remove("open");
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("lightbox").classList.remove("open"); });
+
+function recount() {
+  let p = 0, f = 0, s = 0, run = 0, wait = 0;
+  for (const r of rows.values()) {
+    if (r.status === "pass") p++;
+    else if (r.status === "fail") f++;
+    else if (r.status === "skipped") s++;
+    else if (r.status === "running") run++;
+    else wait++;
+  }
+  const total = rows.size;
+  if (!total) return;
+  const idx = order.findIndex((o) => rows.get(o).status === "running");
+  const now = $("bp-now");
+  if (finished) now.textContent = f ? `Finished — ${f} of ${total} tests failed` : `Finished — all ${total} tests done`;
+  else if (idx >= 0) now.textContent = `Test ${idx + 1} of ${total}`;
+  else now.textContent = `${p + f + s} of ${total} tests done`;
+  const bits = [
+    `<span class="c-pass"><b>${p}</b> passed</span>`,
+    `<span class="c-fail"><b>${f}</b> failed</span>`,
+    `<span class="c-run"><b>${run}</b> running</span>`,
+    `<span><b>${wait}</b> waiting</span>`,
+  ];
+  if (s) bits.push(`<span><b>${s}</b> skipped (real-money tests only run on purpose)</span>`);
+  $("bp-counts").innerHTML = bits.join("");
+  const w = (n) => (n / total * 100).toFixed(2) + "%";
+  document.querySelector(".bp-bar .p").style.width = w(p);
+  document.querySelector(".bp-bar .f").style.width = w(f);
+  document.querySelector(".bp-bar .s").style.width = w(s);
+  document.querySelector(".bp-bar .r").style.width = w(run);
+}
+
+function apply(e) {
+  if (e.kind === "run_start") {
+    window.__runId = e.run_id;
+    order = []; rows.clear();
+    for (const r of e.rows) ensureRow(r.order, {
+      area: r.area, script: r.script, money: r.money,
+      title: r.title, summary: r.summary, description: r.description, verifies: r.verifies, viewport: r.viewport,
+    });
+    $("target").textContent = `${e.run_id} → ${e.base_url}`;
+    $("mode").textContent = e.headless ? "headless" : "headed";
+    $("state").textContent = "running";
+    renderRows(); recount();
+    return;
+  }
+  if (e.kind === "run_end") {
+    finished = true;
+    recount();
+    const badge = $("state");
+    badge.textContent = e.failed ? `finished — ${e.failed} failed` : "finished";
+    badge.className = "pill " + (e.failed ? "live" : "done");
+    return;
+  }
+  if (!e.order) return;
+  const r = ensureRow(e.order);
+
+  if (e.kind === "row_start") {
+    Object.assign(r, { status: "running", area: e.area || r.area, script: e.script || r.script });
+    recount();
+    if (!pinned) select(e.order); else renderRows();
+    return;
+  }
+  if (e.kind === "row_end") {
+    Object.assign(r, {
+      status: e.status, duration: e.duration_s, error: e.error,
+      traceDir: e.trace_dir, reason: e.reason,
+    });
+    recount(); renderRows();
+    if (selected === e.order) renderDetail();
+    return;
+  }
+  r.entries.push(e);
+  if (selected === e.order) renderDetail();
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/events?since=" + seq);
+    const data = await res.json();
+    if (data.events.length) {
+      for (const e of data.events) apply(e);
+      seq = data.seq;
+    }
+  } catch (err) { /* run process gone or busy — just try again */ }
+  setTimeout(poll, finished ? 2000 : 500);
+}
+poll();
+</script>
+</body>
+</html>

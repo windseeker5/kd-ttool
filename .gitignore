@@ -1,0 +1,14 @@
+# Credentials and generated artifacts never get committed.
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Projects are private by default: only projects/example/ is tracked.
+# Your own projects (catalogs, scripts, credentials, target URLs) stay on your machine.
+projects/*
+!projects/example/
+projects/example/reports/*
+!projects/example/reports/.gitkeep
+projects/example/CATALOG.md
