@@ -3,295 +3,331 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>KD-TTOOL — live run</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232f5bea'/%3E%3Cpath d='M9 17l5 5 9-11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
 <style>
+  /* Light by default, dark follows the system. One blue for "clickable / selected";
+     green, red and amber only ever mean pass, fail and caution. */
   :root {
-    --bg: #0e1116; --panel: #161b22; --panel-2: #1c2230; --line: #272e3b;
-    --text: #d7dde6; --dim: #7d8797; --accent: #4c8dff;
-    --pass: #3fb950; --fail: #f85149; --skip: #8b949e; --run: #d29922;
-    --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+    --bg: #f6f7f9; --surface: #ffffff; --sunk: #eef0f4; --ink: #161a21; --mute: #5b6473; --faint: #8a93a2; --line: #e3e6ec;
+    --accent: #2f5bea; --accent-ink: #ffffff; --accent-soft: #e9eefd;
+    --pass: #17803d; --pass-ink: #ffffff; --pass-soft: #e6f4ea;
+    --fail: #c62f2b; --fail-soft: #fdeceb;
+    --warn: #9a6300; --warn-soft: #fdf3dc;
+    --sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --ease: cubic-bezier(.16, 1, .3, 1);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1116; --surface: #151a21; --sunk: #1b212a; --ink: #e9ecf1; --mute: #9aa4b3; --faint: #6f7988; --line: #262d38;
+      --accent: #7d9cff; --accent-ink: #0b1020; --accent-soft: #1a2440;
+      --pass: #4cc38a; --pass-ink: #06170d; --pass-soft: #12261c;
+      --fail: #ff7b72; --fail-soft: #2a1416;
+      --warn: #e3b341; --warn-soft: #2a2210;
+      color-scheme: dark;
+    }
   }
   * { box-sizing: border-box; }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+  * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+  input, textarea, select { accent-color: var(--accent); caret-color: var(--accent); }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 var(--sans); -webkit-font-smoothing: antialiased;
     height: 100vh; display: flex; flex-direction: column; overflow: hidden;
   }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .c-pass { color: var(--pass); } .c-fail { color: var(--fail); } .c-skipped, .c-manual, .c-pending { color: var(--faint); } .c-running { color: var(--accent); }
 
-  header {
-    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    padding: 12px 18px; background: var(--panel); border-bottom: 1px solid var(--line);
+  /* ---- buttons ---- */
+  .btn {
+    height: 32px; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
-  header .meta { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  header .spacer { flex: 1; }
-  .counts { display: flex; gap: 14px; font-family: var(--mono); font-size: 13px; }
-  .counts b { font-weight: 600; }
-  .c-pass b { color: var(--pass); } .c-fail b { color: var(--fail); } .c-skip b { color: var(--skip); }
-  .pill {
-    font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
-    padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);
+  .btn:hover { border-color: var(--faint); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.good { background: var(--pass); border-color: var(--pass); color: var(--pass-ink); }
+  .btn.good:hover { filter: brightness(1.08); }
+  .btn.danger { color: var(--fail); }
+  .btn.danger:hover { border-color: var(--fail); }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--mute); }
+  .btn.ghost:hover { color: var(--ink); background: var(--sunk); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--line); }
+  .btn.primary:disabled:hover { border-color: var(--accent); }
+  .mini {
+    width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 6px; cursor: pointer;
+    background: transparent; border: 0; color: var(--mute);
   }
-  #export-btn {
-    font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
-    border: 1px solid var(--line); background: transparent; color: var(--text);
+  .mini svg { width: 16px; height: 16px; }
+  .mini:hover { background: var(--surface); color: var(--ink); }
+  .mini[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+
+  /* ---- the one slim bar ---- */
+  .bar {
+    position: relative; flex: none; height: 52px; display: flex; align-items: center; gap: 14px; padding: 0 20px;
+    background: var(--surface); border-bottom: 1px solid var(--line);
   }
-  #export-btn:hover { border-color: var(--dim); } #export-btn:disabled { opacity: .5; cursor: wait; }
-  #export-msg a { color: inherit; }
-  .pill.live { color: var(--run); border-color: #4a3c14; background: #241d0b; }
-  .pill.done { color: var(--pass); border-color: #1c3d23; background: #0f2113; }
+  .brand { font-weight: 600; letter-spacing: -.01em; }
+  .target { color: var(--mute); font-size: 13px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sp { flex: 1; }
+  .tally { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--mute); white-space: nowrap; }
+  .tally span { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .tally i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .tally .p i { background: var(--pass); } .tally .f i { background: var(--fail); } .tally .r i { background: var(--accent); }
+  .tally b { color: var(--ink); font-weight: 500; }
+  #export-msg { font-size: 13px; color: var(--mute); max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #export-msg a { color: var(--accent); }
+  .prog { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; overflow: hidden; }
+  .prog i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); transition: transform .35s var(--ease); }
+  .prog .p { background: var(--pass); } .prog .f { background: var(--fail); }
+  .prog .s { background: var(--faint); opacity: .55; } .prog .r { background: var(--accent); }
 
   main { flex: 1; display: flex; min-height: 0; }
 
-  /* ---- left: the test list (the main thing) ---- */
-  #tests { width: var(--left, 44%); min-width: 320px; flex: none; display: flex; flex-direction: column; background: var(--panel); min-height: 0; }
-  #tests-head {
-    display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line);
-    font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600;
-  }
-  #tests-head .spacer { flex: 1; }
-  .btn {
-    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 6px; cursor: pointer;
-    border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
-  }
-  .btn:hover { border-color: var(--dim); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  .btn.primary:hover { filter: brightness(1.1); }
-  .btn.good { background: #1f6f3a; border-color: #2a8f4c; color: #fff; font-weight: 600; }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-  #tests-head .btn { text-transform: none; letter-spacing: 0; font-size: 12.5px; padding: 4px 12px; }
+  /* ---- left: the test list ---- */
+  #tests { width: var(--left, 400px); min-width: 320px; flex: none; display: flex; flex-direction: column; background: var(--surface); min-height: 0; }
+  #tests-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 4px 20px; font-size: 13px; color: var(--mute); }
   #rows { flex: 1; overflow-y: auto; padding-bottom: 40px; }
-  #divider { width: 6px; flex: none; cursor: col-resize; background: var(--line); opacity: .5; transition: opacity .15s, background .15s; }
-  #divider:hover, #divider.drag { opacity: 1; background: var(--accent); }
-  #right { flex: 1; min-width: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+  #divider { width: 1px; flex: none; position: relative; cursor: col-resize; background: var(--line); transition: box-shadow .15s; }
+  #divider::before { content: ""; position: absolute; inset: 0 -4px; }
+  #divider:hover, #divider.drag, #divider:focus-visible { box-shadow: 0 0 0 1px var(--accent); background: var(--accent); outline: none; }
+  #right { flex: 1; min-width: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; background: var(--bg); }
 
-  .card {
-    display: flex; align-items: stretch; border-bottom: 1px solid #1b212c; position: relative;
-  }
-  .card:hover { background: var(--panel-2); }
-  .card[aria-current="true"] { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
-  .card.editing { box-shadow: inset 3px 0 0 var(--run); background: var(--panel-2); }
+  .group { padding: 14px 20px 4px; font-size: 12px; font-weight: 500; color: var(--mute); }
+  .card { position: relative; margin: 0 8px; border-radius: 8px; }
+  .card:hover, .card[aria-current="true"], .card.editing { background: var(--sunk); }
   .card-main {
-    flex: 1; min-width: 0; display: flex; gap: 12px; align-items: flex-start; text-align: left;
-    padding: 14px 8px 14px 16px; background: none; border: 0; color: var(--dim); font: inherit; cursor: pointer;
+    width: 100%; display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 2px 12px; align-items: start; text-align: left;
+    padding: 9px 12px; background: none; border: 0; border-radius: 8px; color: var(--ink); cursor: pointer;
   }
-  .card-main:focus-visible, .ibtn:focus-visible, .gap .add:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-  .card .mark { width: 18px; text-align: center; font-size: 16px; line-height: 1.4; flex: none; }
-  .card.pass .mark { color: var(--pass); } .card.fail .mark { color: var(--fail); }
-  .card.running .mark { color: var(--run); animation: spin 1s linear infinite; }
+  .card-main:focus-visible { outline-offset: -2px; }
+  .card .mark, .card .dur { height: 20px; display: flex; align-items: center; }
+  .card .mark svg { width: 16px; height: 16px; }
+  .card.running .mark svg { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .card .body { flex: 1; min-width: 0; display: block; }
-  .card .ttl { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 16px; font-weight: 600; color: var(--text); line-height: 1.35; }
-  .card.pending .ttl, .card.skipped .ttl, .card.manual .ttl { color: var(--dim); }
-  .card .sum {
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    margin-top: 3px; font-size: 13.5px; line-height: 1.45; color: var(--dim);
+  .card .body { min-width: 0; display: block; }
+  .card .ttl { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; line-height: 20px; }
+  .card .ttl .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card.skipped .ttl, .card.manual .ttl, .card.pending .ttl { color: var(--mute); }
+  .card .sum { display: none; margin-top: 1px; font-size: 13px; color: var(--mute); }
+  .card[aria-current="true"] .sum { display: block; }
+  .card .dur { min-width: 58px; justify-content: flex-end; font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+  .chip {
+    flex: none; font-size: 12px; font-weight: 500; padding: 0 8px; line-height: 18px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--mute); background: var(--surface);
   }
-  .card .dur { font-family: var(--mono); font-size: 11.5px; color: var(--dim); padding-top: 3px; flex: none; }
-  .badge {
-    font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-    padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);
-  }
-  .badge.draft { color: #9dc1ff; border-color: #294a7d; background: #0f1d33; }
-  .badge.stale { color: var(--run); border-color: #4a3c14; background: #241d0b; }
-  .badge.manual { color: var(--skip); }
-  .acts { display: flex; align-items: flex-start; gap: 4px; padding: 10px 12px 10px 4px; flex: none; }
-  .ibtn {
-    width: 38px; height: 38px; display: inline-grid; place-items: center; border-radius: 8px; cursor: pointer;
-    background: transparent; border: 1px solid transparent; color: var(--dim);
-  }
-  .ibtn svg { width: 20px; height: 20px; }
-  .ibtn:hover { color: var(--text); border-color: var(--line); background: var(--bg); }
-  .ibtn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: #0f1d33; }
+  .chip.draft { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .chip.stale { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+  /* Edit and Script icons only show when you point at a row, select it, or tab into it */
+  .acts { position: absolute; right: 10px; top: 5px; display: flex; gap: 2px; opacity: 0; pointer-events: none; }
+  .card:hover .acts, .card:focus-within .acts, .card[aria-current="true"] .acts, .card.editing .acts { opacity: 1; pointer-events: auto; }
+  .card:hover .dur, .card:focus-within .dur, .card[aria-current="true"] .dur, .card.editing .dur { visibility: hidden; }
 
   /* the thin "+" line between two tests */
   .gap { position: relative; height: 0; z-index: 2; }
+  .gap::before { content: ""; position: absolute; left: 16px; right: 16px; top: 0; border-top: 1px dashed var(--accent); opacity: 0; transition: opacity .12s; }
   .gap .add {
     position: absolute; left: 50%; top: -11px; transform: translateX(-50%); width: 22px; height: 22px; padding: 0;
-    border-radius: 50%; border: 1px solid var(--accent); background: var(--panel); color: var(--accent);
-    font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s;
+    border-radius: 50%; border: 1px solid var(--accent); background: var(--surface); color: var(--accent);
+    font-size: 16px; line-height: 1; cursor: pointer; opacity: 0; pointer-events: none; transition: opacity .12s;
   }
-  .gap::before { content: ""; position: absolute; left: 12px; right: 12px; top: 0; border-top: 1px dashed var(--accent); opacity: 0; transition: opacity .12s; }
-  .gap .add { pointer-events: none; }
   .card:hover + .gap .add, .gap:hover .add, .gap .add:focus-visible { opacity: 1; pointer-events: auto; }
   .card:hover + .gap::before, .gap:hover::before { opacity: .7; }
-  .gap .add:hover { background: var(--accent); color: #fff; }
+  .gap .add:hover { background: var(--accent); color: var(--accent-ink); }
   @media (hover: none) { .gap .add { opacity: .55; pointer-events: auto; } }
 
-  /* ---- the editor drawer: slides open left to right over the right pane ---- */
+  /* ---- right pane: what happened ---- */
+  #detail { display: flex; flex-direction: column; min-width: 0; overflow: hidden; flex: 1; }
+  #detail-head, .dr-head { display: flex; align-items: center; gap: 16px; padding: 16px 28px 14px; }
+  #detail-head .who, .dr-head .who { flex: 1; min-width: 0; }
+  #detail-head h2, .dr-head h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.015em; line-height: 1.3; }
+  .sub { margin: 2px 0 0; font-size: 13px; color: var(--mute); }
+  .sub code { font-family: var(--mono); font-size: 12px; }
+  .pillx { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: var(--sunk); color: var(--mute); }
+  .pillx svg { width: 14px; height: 14px; }
+  .pillx.pass { background: var(--pass-soft); color: var(--pass); }
+  .pillx.fail { background: var(--fail-soft); color: var(--fail); }
+  .pillx.running { background: var(--accent-soft); color: var(--accent); }
+  #log { flex: 1; overflow-y: auto; padding: 4px 28px 40px; display: grid; gap: 22px; align-content: start; }
+  .empty { margin: 0; color: var(--mute); padding: 12px 0; }
+  .sech { display: flex; align-items: baseline; gap: 8px; margin: 0 0 10px; font-size: 13px; font-weight: 500; color: var(--mute); }
+
+  .alert { background: var(--fail-soft); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; }
+  .alert .why { font-weight: 600; color: var(--fail); }
+  .alert .reason { font-size: 16px; overflow-wrap: anywhere; }
+  .alert .cmd { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 5px 5px 5px 12px; }
+  .alert .cmd code { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .errfull summary { cursor: pointer; font-size: 13px; color: var(--mute); width: fit-content; }
+  .errfull summary:hover { color: var(--ink); }
+  .errfull pre { margin: 8px 0 0; padding: 12px 14px; max-height: 260px; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .shots { display: flex; flex-wrap: wrap; gap: 14px; }
+  .shot { width: 300px; padding: 0; border: 0; background: none; text-align: left; cursor: zoom-in; }
+  .shot .img { display: block; position: relative; aspect-ratio: 1100 / 620; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); background: #fff; }
+  .shot .img img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+  .shot .no {
+    position: absolute; left: 8px; top: 8px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--ink); color: var(--surface); font-size: 12px; font-weight: 600;
+  }
+  .shot.bad .img { border-color: var(--fail); }
+  .shot .cap { display: block; margin-top: 6px; font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shot:hover .img { border-color: var(--faint); } .shot.bad:hover .img { border-color: var(--fail); }
+
+  .steps { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 16px; border-top: 1px solid var(--line); }
+  .steps li:first-child { border-top: 0; }
+  .steps li.bad { background: var(--fail-soft); }
+  .steps .mk { display: grid; place-items: center; }
+  .steps .mk svg { width: 16px; height: 16px; }
+  .steps .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); }
+  .steps .txt { min-width: 0; overflow-wrap: anywhere; }
+  .steps .txt.note { font-weight: 500; }
+  .steps .q { font-family: var(--mono); font-size: 13px; color: var(--mute); }
+  .steps .vp { margin-left: 8px; font-size: 12px; color: var(--mute); }
+  .steps .tm { font-family: var(--mono); font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; }
+  .ref { margin-left: 8px; padding: 0; border: 0; background: none; cursor: pointer; font-size: 12px; font-weight: 500; color: var(--accent); }
+  .ref:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+  /* ---- the editor: slides open over the right pane ---- */
   #drawer {
     position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 20;
-    transform: translateX(-102%); transition: transform .22s ease; visibility: hidden;
-    box-shadow: 8px 0 24px rgba(0,0,0,.35);
+    transform: translateX(-102%); transition: transform .22s var(--ease); visibility: hidden;
+    box-shadow: 8px 0 24px rgba(0,0,0,.10);
   }
   #drawer.open { transform: none; visibility: visible; }
-  @media (prefers-reduced-motion: reduce) { #drawer { transition: none; } }
-  .dr-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
-  .dr-head .who { flex: 1; min-width: 200px; }
-  .dr-head h2 { margin: 0; font-size: 16px; }
-  .dr-head code { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  .tabs { display: flex; gap: 4px; }
-  .tabs button {
-    font: inherit; font-size: 13px; padding: 6px 14px; cursor: pointer; border-radius: 6px;
-    border: 1px solid var(--line); background: transparent; color: var(--dim);
+  @media (prefers-reduced-motion: reduce) {
+    #drawer, .prog i, .gap::before, .gap .add, #divider { transition: none; }
+    .card.running .mark svg { animation: none; }
   }
-  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-  #dr-close { width: 34px; height: 34px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--dim); cursor: pointer; font-size: 16px; }
-  #dr-close:hover { color: var(--text); border-color: var(--dim); }
-  #dr-msg { padding: 0 18px; }
-  #dr-msg .msg { margin: 10px 0 0; padding: 8px 12px; border-radius: 6px; font-size: 13.5px; border: 1px solid var(--line); background: var(--panel); }
-  #dr-msg .msg.ok { border-color: #1c3d23; background: #0f2113; color: #7ee787; }
-  #dr-msg .msg.err { border-color: #5a2226; background: #1a1013; color: #ff9d96; }
-  #dr-body { flex: 1; overflow-y: auto; padding: 16px 18px 40px; }
-  .form { max-width: 900px; display: flex; flex-direction: column; gap: 14px; }
-  .form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .tabs { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--sunk); }
+  .tabs button { height: 28px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--mute); cursor: pointer; font-size: 13px; font-weight: 500; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.10); }
+  #dr-msg { padding: 0 28px; }
+  #dr-msg .msg { margin: 0 0 12px; padding: 9px 14px; border-radius: 8px; font-size: 13px; background: var(--sunk); }
+  #dr-msg .msg.ok { background: var(--pass-soft); color: var(--pass); }
+  #dr-msg .msg.err { background: var(--fail-soft); color: var(--fail); }
+  #dr-body { flex: 1; overflow-y: auto; padding: 6px 28px 32px; }
+  #dr-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 14px 28px; border-top: 1px solid var(--line); background: var(--surface); }
+  #dr-foot:empty { display: none; }
+  #dr-foot .st { flex: 1; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); }
+  #dr-foot .st i { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  #dr-foot .st i.ok { background: var(--pass); } #dr-foot .st i.warn { background: var(--warn); }
+  #dr-foot .st.ask { color: var(--ink); font-weight: 500; }
+
+  .form { max-width: 700px; display: grid; gap: 18px; }
+  .form label { display: grid; gap: 6px; font-size: 13px; font-weight: 500; }
   .form input[type=text], .form textarea, .form select {
-    font: inherit; font-size: 14.5px; letter-spacing: 0; text-transform: none; font-weight: 400;
-    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%;
+    font: inherit; font-size: 14px; font-weight: 400; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; width: 100%;
   }
-  .form textarea { line-height: 1.5; resize: vertical; min-height: 90px; }
-  .form input:focus, .form textarea:focus, .form select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .form .hint { font-size: 12px; color: var(--dim); text-transform: none; letter-spacing: 0; font-weight: 400; }
-  .form details summary { cursor: pointer; color: var(--dim); font-size: 13px; padding: 4px 0; }
-  .form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px; }
-  .form .checks { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 12px; }
-  .form .checks label { flex-direction: row; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 13.5px; color: var(--text); font-weight: 400; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
-  .actions .status { color: var(--dim); font-size: 13px; }
+  .form input[type=text]:hover, .form textarea:hover, .form select:hover { border-color: var(--faint); }
+  .form textarea { line-height: 1.5; resize: vertical; min-height: 84px; max-height: 360px; field-sizing: content; }
+  .form textarea.short { min-height: 64px; }
+  .form input:focus, .form textarea:focus, .form select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .form .hint { font-size: 12px; font-weight: 400; color: var(--mute); }
+  .form details summary { cursor: pointer; color: var(--mute); font-size: 13px; font-weight: 500; padding: 4px 0; width: fit-content; }
+  .form details summary:hover { color: var(--ink); }
+  .form .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  .form .checks { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+  .form .checks label { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
   .codebar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-  .codebar code { font-family: var(--mono); font-size: 12.5px; color: #9dc1ff; }
+  .codebar code { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+  .codebar .note { font-size: 12px; color: var(--mute); }
   .codebar .spacer { flex: 1; }
-  .code { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: auto; padding: 8px 0; }
+  .code { font-family: var(--mono); font-size: 12px; line-height: 1.6; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: auto; padding: 8px 0; }
   .code .ln { display: flex; }
-  .code .n { flex: none; width: 48px; text-align: right; padding-right: 12px; color: #545d6b; user-select: none; }
+  .code .n { flex: none; width: 48px; text-align: right; padding-right: 12px; color: var(--mute); user-select: none; }
   .code .t { white-space: pre; padding-right: 16px; }
-  .code .add { background: rgba(63,185,80,.14); } .code .del { background: rgba(248,81,73,.14); } .code .hunk { color: #9dc1ff; background: rgba(76,141,255,.08); }
-  .working { padding: 24px; border: 1px dashed var(--line); border-radius: 8px; color: var(--dim); }
-  .working b { color: var(--text); }
-  .placeholder { color: var(--dim); font-style: italic; padding: 24px 18px; }
+  .code .add { background: var(--pass-soft); } .code .del { background: var(--fail-soft); } .code .hunk { color: var(--accent); background: var(--accent-soft); }
+  .working { padding: 24px; border: 1px dashed var(--line); border-radius: 12px; color: var(--mute); }
+  .working b { color: var(--ink); }
+  .placeholder { margin: 0; color: var(--mute); padding: 16px 0; }
+  .hint-line { margin: 12px 0 0; font-size: 12px; color: var(--mute); }
 
-  /* ---- right pane: log + shots ---- */
-  #detail { display: flex; flex-direction: column; min-width: 0; overflow: hidden; flex: 1; }
-  #detail-head {
-    padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex;
-    align-items: baseline; gap: 12px; flex-wrap: wrap;
-  }
-  #detail-head h2 { margin: 0; font-size: 15px; font-weight: 600; }
-  #detail-head code { font-family: var(--mono); font-size: 12px; color: var(--dim); }
-  #detail-head #d-script { flex-basis: 100%; color: #9dc1ff; }
-  #detail-head #d-script::before { content: "Script run: "; color: var(--dim); }
-  #log { flex: 1; overflow-y: auto; padding: 14px 18px 40px; }
-  .empty { color: var(--dim); font-style: italic; padding: 24px 0; }
-
-  .line { display: flex; gap: 12px; padding: 2px 0; font-family: var(--mono); font-size: 12.5px; }
-  .line .t { color: #545d6b; flex-shrink: 0; }
-  .line .m { white-space: pre-wrap; word-break: break-word; }
-  .line.note .m { color: #a8b3c4; font-family: inherit; font-size: 13px; }
-  .line.err .m { color: var(--fail); }
-
-  .shots { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px 62px; }
-  .shot { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #000; cursor: zoom-in; width: 190px; }
-  .shot img { display: block; width: 100%; height: 120px; object-fit: cover; object-position: top; }
-  .shot span {
-    display: block; padding: 5px 8px; font-family: var(--mono); font-size: 11px;
-    color: var(--dim); background: var(--panel-2); overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-
-  pre.trace {
-    margin: 10px 0 0 62px; padding: 12px 14px; background: #1a1013; border: 1px solid #3d1d1f;
-    border-radius: 6px; color: #ff9d96; font-family: var(--mono); font-size: 12px;
-    white-space: pre-wrap; word-break: break-word; overflow-x: auto;
-  }
-  .tracecmd {
-    margin: 10px 0 0 62px; padding: 9px 12px; background: var(--panel-2); border: 1px solid var(--line);
-    border-radius: 6px; font-family: var(--mono); font-size: 12px; color: #9dc1ff;
-    overflow-x: auto; white-space: nowrap;
-  }
-
-
-  /* ---- big picture strip ---- */
-  #bigpic { padding: 8px 18px 10px; background: var(--panel); border-bottom: 1px solid var(--line); }
-  .bp-line { display: flex; align-items: baseline; gap: 8px 22px; flex-wrap: wrap; }
-  #bp-now { font-size: 15px; font-weight: 650; }
-  #bp-counts { display: flex; gap: 6px 16px; flex-wrap: wrap; color: var(--dim); font-size: 13px; }
-  #bp-counts b { font-weight: 650; }
-  #bp-counts .c-pass b { color: var(--pass); } #bp-counts .c-fail b { color: var(--fail); }
-  #bp-counts .c-run b { color: var(--run); }
-  .bp-bar { display: flex; height: 6px; margin-top: 7px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
-  .bp-bar i { display: block; height: 100%; transition: width .3s; }
-  .bp-bar .p { background: var(--pass); } .bp-bar .f { background: var(--fail); }
-  .bp-bar .s { background: var(--skip); } .bp-bar .r { background: var(--run); }
-
-  /* ---- grouped test list ---- */
-  .group { padding: 12px 14px 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
-  .row .title { flex: 1; min-width: 0; }
-  .row .title small { display: block; font-size: 11px; color: var(--dim); }
-  .row.pending .title, .row.skipped .title { color: var(--dim); }
-
-  .steps-label { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-weight: 600; margin: 0 0 8px; }
-
-  /* ---- lightbox ---- */
+  /* ---- screenshot viewer ---- */
   #lightbox {
-    position: fixed; inset: 0; background: rgba(3,5,9,.94); display: none;
+    position: fixed; inset: 0; background: rgba(6,8,12,.9); display: none;
     align-items: flex-start; justify-content: center; overflow: auto; z-index: 50; cursor: zoom-out;
   }
   #lightbox.open { display: flex; }
-  #lightbox img { max-width: min(1100px, 96vw); margin: 3vh 0; border: 1px solid var(--line); }
-
-  @media (max-width: 820px) {
-    main { flex-direction: column; }
-    #tests { width: 100% !important; height: 46%; }
-    #divider { display: none; }
-    .shots, pre.trace, .tracecmd { margin-left: 0; }
-    .form .row2 { grid-template-columns: 1fr; }
-  }
+  #lightbox img { max-width: min(1100px, 96vw); margin: 56px 0 3vh; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+  #lb-close { position: fixed; top: 14px; right: 18px; width: 36px; height: 36px; color: #fff; }
+  #lb-close:hover { background: rgba(255,255,255,.14); color: #fff; }
+  #lb-close svg { width: 18px; height: 18px; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>KD-TTOOL</h1>
-  <span class="meta" id="target">connecting…</span>
-  <span class="pill" id="mode"></span>
-  <span class="spacer"></span>
-  <span id="export-msg" class="meta"></span>
-  <button id="export-btn" type="button">Export report</button>
-  <span class="pill live" id="state">waiting</span>
-</header>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-pass" viewBox="0 0 16 16"><path class="svg" d="M3.5 8.5l3 3 6-6.5"/></symbol>
+    <symbol id="i-fail" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="currentColor"/><path d="M5.7 5.7l4.6 4.6M10.3 5.7l-4.6 4.6" stroke="#fff" stroke-width="1.6" stroke-linecap="round" fill="none"/></symbol>
+    <symbol id="i-skipped" viewBox="0 0 16 16"><circle class="svg" cx="8" cy="8" r="6"/><path class="svg" d="M5.5 8h5"/></symbol>
+    <symbol id="i-manual" viewBox="0 0 16 16"><circle class="svg" cx="8" cy="8" r="6"/></symbol>
+    <symbol id="i-pending" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2" fill="currentColor"/></symbol>
+    <symbol id="i-running" viewBox="0 0 16 16"><path class="svg" d="M8 2a6 6 0 1 0 6 6"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 16 16"><path class="svg" d="M3 13l.7-2.9L10.8 3a1.4 1.4 0 0 1 2 2L5.7 12.2 3 13z"/></symbol>
+    <symbol id="i-code" viewBox="0 0 16 16"><path class="svg" d="M6 5L3 8l3 3M10 5l3 3-3 3"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path class="svg" d="M4 4l8 8M12 4l-8 8"/></symbol>
+  </defs>
+</svg>
 
-<section id="bigpic" aria-live="polite">
-  <div class="bp-line"><span id="bp-now">Waiting for the run to start…</span><span id="bp-counts"></span></div>
-  <div class="bp-bar" aria-hidden="true"><i class="p"></i><i class="f"></i><i class="s"></i><i class="r"></i></div>
-</section>
+<header class="bar">
+  <span class="brand">KD-TTOOL</span>
+  <span class="target" id="target">connecting…</span>
+  <span class="sp"></span>
+  <span class="tally" id="tally" role="status" aria-live="polite"></span>
+  <span id="export-msg"></span>
+  <button class="btn" id="export-btn" type="button">Export report</button>
+  <div class="prog" aria-hidden="true"><i class="p"></i><i class="f"></i><i class="s"></i><i class="r"></i></div>
+</header>
 
 <main>
   <section id="tests" aria-label="Tests">
-    <div id="tests-head"><span id="tests-count">Tests</span><span class="spacer"></span><button class="btn" id="add-end" type="button">+ Add test</button></div>
+    <div id="tests-head"><span id="tests-count">Tests</span><button class="btn ghost" id="add-end" type="button">+ Add test</button></div>
     <div id="rows"></div>
   </section>
   <div id="divider" role="separator" aria-orientation="vertical" aria-label="Resize the test list" tabindex="0"></div>
   <section id="right">
     <section id="detail">
-      <div id="detail-head"><h2 id="d-area">—</h2><code id="d-meta"></code><code id="d-script"></code></div>
+      <div id="detail-head">
+        <div class="who"><h2 id="d-area">—</h2><p class="sub" id="d-meta"></p></div>
+        <span class="pillx" id="d-status" hidden></span>
+      </div>
       <div id="log"><p class="empty">Waiting for the run to start…</p></div>
     </section>
     <aside id="drawer" aria-hidden="true" aria-label="Test editor">
       <div class="dr-head">
-        <div class="who"><h2 id="dr-title"></h2><code id="dr-sub"></code></div>
+        <div class="who"><h2 id="dr-title"></h2><p class="sub" id="dr-sub"></p></div>
         <div class="tabs" role="tablist" id="dr-tabs">
           <button type="button" role="tab" data-tab="catalog">Catalog entry</button>
           <button type="button" role="tab" data-tab="script">Script</button>
         </div>
-        <button id="dr-close" type="button" aria-label="Close editor" title="Close (Esc)">✕</button>
+        <button class="mini" id="dr-close" type="button" aria-label="Close editor" title="Close (Esc)"><svg aria-hidden="true"><use href="#i-x"/></svg></button>
       </div>
       <div id="dr-msg" role="status" aria-live="polite"></div>
       <div id="dr-body"></div>
+      <div id="dr-foot"></div>
     </aside>
   </section>
 </main>
 
-<div id="lightbox"><img alt=""></div>
+<div id="lightbox" role="dialog" aria-modal="true" aria-label="Screenshot" aria-hidden="true">
+  <button class="mini" id="lb-close" type="button" aria-label="Close screenshot"><svg aria-hidden="true"><use href="#i-x"/></svg></button>
+  <img alt="">
+</div>
 
 <script>
 const rows = new Map();      // order -> {area, script, money, status, duration, error, traceDir, entries[]}
@@ -303,7 +339,7 @@ let finished = false;
 let lastShown = null;       // which row the log pane last rendered
 
 const $ = (id) => document.getElementById(id);
-const MARK = { pending: "·", running: "◜", pass: "✓", fail: "✕", skipped: "⏭" };
+const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`;
 
 function clock(ts) {
   const d = new Date(ts * 1000);
@@ -322,8 +358,6 @@ function ensureRow(o, data) {
 const TOKEN = "__KD_TOKEN__";
 const cat = new Map();       // order -> catalog row (source of truth for the words)
 let catOrder = [];
-const ICON_CATALOG = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3.5h9.5A1.5 1.5 0 0 1 15 5v11.5H5.5A1.5 1.5 0 0 1 4 15z"/><path d="M4 15a1.5 1.5 0 0 1 1.5-1.5H15"/><path d="M7.5 6.5h4.5M7.5 9h4.5"/></svg>';
-const ICON_SCRIPT = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.5 6 3.5 10l4 4M12.5 6l4 4-4 4"/></svg>';
 
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
@@ -380,19 +414,22 @@ function gapEl(after) {
                   onclick: () => openDrawer({ mode: "new", after }) }, "+"));
 }
 
-function iconBtn(o, tab, icon, label) {
+function iconBtn(o, tab, name, label) {
   const on = drawer.open && drawer.order === o && drawer.tab === tab && drawer.mode === "edit";
-  return h("button", { class: "ibtn", type: "button", title: label, "aria-label": label, "aria-pressed": String(on),
-                       html: icon, onclick: () => openDrawer({ mode: "edit", order: o, tab }) });
+  return h("button", { class: "mini", type: "button", title: label, "aria-label": label, "aria-pressed": String(on), "data-tab": tab,
+                       html: icon(name), onclick: () => openDrawer({ mode: "edit", order: o, tab }) });
 }
 
 function renderRows() {
   const host = $("rows");
   const keep = host.scrollTop;
+  const fa = document.activeElement;      // keep keyboard focus when the list redraws
+  const focus = fa && host.contains(fa) && fa.closest("[data-order]")
+    ? { order: fa.closest("[data-order]").dataset.order, tab: fa.dataset.tab || "" } : null;
   host.innerHTML = "";
   let lastArea = null;
   const list = listOrder();
-  $("tests-count").textContent = list.length ? `Tests · ${list.length}` : "Tests";
+  $("tests-count").textContent = list.length ? `${list.length} test${list.length === 1 ? "" : "s"}` : "Tests";
   for (const o of list) {
     const c = cat.get(o) || {};
     const r = rows.get(o) || {};
@@ -401,31 +438,36 @@ function renderRows() {
     if (area !== lastArea) { host.appendChild(h("div", { class: "group" }, area)); lastArea = area; }
     const title = c.title || r.title || area;
     const summary = c.summary || r.summary || "";
-    const dur = r.duration != null ? r.duration.toFixed(1) + "s" : "";
+    const dur = r.duration != null && status !== "skipped" ? r.duration.toFixed(1) + "s" : "";
     const state = c.script_state;
-    const badges = [
-      state === "draft" && h("span", { class: "badge draft" }, "no script yet"),
-      state === "stale" && h("span", { class: "badge stale" }, "script out of date"),
-      status === "manual" && h("span", { class: "badge manual" }, "by hand"),
+    const tags = [
+      (c.money || r.money) && h("span", { class: "chip", title: "Moves real money, so it only runs on purpose" }, "Real money"),
+      state === "draft" && h("span", { class: "chip draft" }, "No script yet"),
+      state === "stale" && h("span", { class: "chip stale" }, "Script out of date"),
+      status === "manual" && h("span", { class: "chip" }, "By hand"),
     ];
     const card = h("div", {
       class: "card " + status + (drawer.open && drawer.order === o && drawer.mode === "edit" ? " editing" : ""),
       "aria-current": String(o === selected), "data-order": o,
     },
       h("button", { class: "card-main", type: "button", onclick: () => { pinned = true; select(o); } },
-        h("span", { class: "mark" }, MARK[status] || "·"),
+        h("span", { class: "mark c-" + status, html: icon(status) }),
         h("span", { class: "body" },
-          h("span", { class: "ttl" }, (c.money || r.money ? "💰 " : "") + title, badges),
+          h("span", { class: "ttl" }, h("span", { class: "t" }, title), tags),
           h("span", { class: "sum" }, summary)),
         h("span", { class: "dur" }, dur)),
       h("div", { class: "acts" },
-        iconBtn(o, "catalog", ICON_CATALOG, "Catalog entry: read and edit what this test should do"),
-        c.manual ? null : iconBtn(o, "script", ICON_SCRIPT, "Script: see the code")));
+        iconBtn(o, "catalog", "edit", "Edit catalog entry: what this test should do"),
+        c.manual ? null : iconBtn(o, "script", "code", "Script: see the code")));
     host.appendChild(card);
     host.appendChild(gapEl(o));
     if (o === selected) requestAnimationFrame(() => card.scrollIntoView({ block: "nearest" }));
   }
   host.scrollTop = keep;
+  if (focus) {
+    const sel = `[data-order="${CSS.escape(focus.order)}"] ` + (focus.tab ? `[data-tab="${focus.tab}"]` : ".card-main");
+    host.querySelector(sel)?.focus({ preventScroll: true });
+  }
 }
 
 function select(o) {
@@ -434,16 +476,62 @@ function select(o) {
   renderDetail();
 }
 
+/* "[desktop] goto /cart" -> "Open /cart"; keeps the screen size only when a test runs on both */
+function parseStep(raw) {
+  let t = String(raw), vp = "";
+  const m = t.match(/^\s*\[(desktop|mobile|tablet)\]\s*/i);
+  if (m) { vp = m[1].toLowerCase(); t = t.slice(m[0].length); }
+  t = t.replace(/^\s*[▲⚠]️?\s*/, "");
+  const g = t.match(/^(goto|fill)\s+(.*)$/i);
+  if (g) return { vp, parts: [g[1].toLowerCase() === "goto" ? "Open " : "Fill ", h("span", { class: "q" }, g[2])] };
+  t = t.replace(/'([^']*)'/g, "“$1”");
+  return { vp, parts: [t.charAt(0).toUpperCase() + t.slice(1)] };
+}
+
+/* the one line that says why it failed, out of a long traceback */
+function failReason(error) {
+  const lines = error.split("\n").map((s) => s.trim()).filter(Boolean);
+  const isExc = (l) => /^[\w.]*(Error|Exception)\b[^:]*:/.test(l);
+  const line = [...lines].reverse().find(isExc) || lines[lines.length - 1] || "";
+  let text = line.replace(/^[\w.]*(Error|Exception)\b[^:]*:\s*/, "") || line;
+  text = text.replace(/'([^']*)'/g, "“$1”");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function copyButton(text) {
+  return h("button", { class: "btn", type: "button", onclick: async (e) => {
+    const b = e.currentTarget;
+    try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch (err) { b.textContent = "Copy failed"; }
+    setTimeout(() => { b.textContent = "Copy"; }, 1600);
+  } }, "Copy");
+}
+
+function setStatusPill(status, r) {
+  const el = $("d-status");
+  const dur = r && r.duration != null ? " · " + r.duration.toFixed(1) + "s" : "";
+  const map = {
+    pass: ["Passed" + dur, "pass", "pass"], fail: ["Failed" + dur, "fail", "fail"], running: ["Running", "running", "running"],
+    skipped: ["Skipped", "", "skipped"], manual: ["By hand", "", "manual"], pending: ["Not run yet", "", "pending"],
+  };
+  const m = map[status] || map.pending;
+  el.hidden = false;
+  el.className = "pillx " + m[1];
+  el.innerHTML = icon(m[2]);
+  el.append(m[0]);
+}
+
 function renderDetail() {
   const r = rows.get(selected);
   const c = cat.get(selected);
   const log = $("log");
-  if (!r && !c) { log.innerHTML = '<p class="empty">Waiting for the run to start…</p>'; return; }
+  if (!r && !c) { log.innerHTML = '<p class="empty">Waiting for the run to start…</p>'; $("d-status").hidden = true; return; }
   const info = Object.assign({}, r || {}, c || {});
 
   $("d-area").textContent = info.title || info.area;
-  $("d-meta").textContent = `${info.area} · test ${selected}` + (info.viewport ? ` · ${info.viewport}` : "");
-  $("d-script").textContent = info.script ? `scripts/${info.script}` : "none (done by hand)";
+  $("d-meta").replaceChildren(
+    [info.area, info.viewport].filter(Boolean).join(" · ") + " · ",
+    h("code", {}, info.script ? `scripts/${info.script}` : "done by hand"));
+  setStatusPill(r ? r.status : (c && c.manual ? "manual" : "pending"), r);
   if (!r) {
     log.innerHTML = "";
     log.appendChild(h("p", { class: "empty" }, c.manual
@@ -458,72 +546,87 @@ function renderDetail() {
   }
 
   const frag = document.createDocumentFragment();
-  const lbl = document.createElement("p"); lbl.className = "steps-label"; lbl.textContent = "Step by step";
-  frag.appendChild(lbl);
-  let shots = null;  // group consecutive screenshots into one thumbnail strip
 
+  // 1. if it failed: why, first
+  if (r.status === "fail" && r.error) {
+    const alert = h("div", { class: "alert" },
+      h("div", { class: "why" }, "Why it failed"),
+      h("div", { class: "reason" }, failReason(r.error)));
+    if (r.traceDir) {
+      const cmd = `npx playwright show-trace reports/${window.__runId}/${r.traceDir}/trace_1.zip`;
+      alert.append(h("div", { class: "cmd" }, h("code", { title: cmd }, cmd), copyButton(cmd)));
+    }
+    alert.append(h("details", { class: "errfull" }, h("summary", {}, "Full error"), h("pre", {}, r.error.trim())));
+    frag.appendChild(alert);
+  }
+
+  // 2. screenshots, numbered; each is linked to the step that took it
+  const shots = [], steps = [];
   for (const e of r.entries) {
     if (e.kind === "screenshot") {
-      if (!shots) { shots = document.createElement("div"); shots.className = "shots"; frag.appendChild(shots); }
-      const fig = document.createElement("div");
-      fig.className = "shot";
-      const img = document.createElement("img");
-      img.src = "/shot/" + e.path.split("/").map(encodeURIComponent).join("/");
-      img.alt = e.label;
-      img.loading = "lazy";
-      const cap = document.createElement("span");
-      cap.textContent = e.label;
-      fig.append(img, cap);
-      fig.onclick = () => openLightbox(img.src, e.label);
-      shots.appendChild(fig);
-      continue;
-    }
-    shots = null;
-    const line = document.createElement("div");
-    line.className = "line " + (e.kind === "note" ? "note" : e.level === "error" ? "err" : "");
-    const t = document.createElement("span"); t.className = "t"; t.textContent = clock(e.ts);
-    const m = document.createElement("span"); m.className = "m"; m.textContent = e.text;
-    line.append(t, m);
-    frag.appendChild(line);
+      shots.push(e);
+      if (!steps.length) steps.push({ e: { kind: "note", text: e.label, ts: e.ts }, refs: [] });
+      steps[steps.length - 1].refs.push(shots.length);
+    } else steps.push({ e, refs: [] });
+  }
+  const shotSrc = (e) => "/shot/" + e.path.split("/").map(encodeURIComponent).join("/");
+  if (shots.length) {
+    const strip = h("div", { class: "shots" }, shots.map((e, i) => {
+      const img = h("img", { src: shotSrc(e), alt: e.label, loading: "lazy" });
+      return h("button", { class: "shot" + (/fail/i.test(e.label) ? " bad" : ""), type: "button", onclick: (ev) => openLightbox(shotSrc(e), e.label, ev.currentTarget) },
+        h("span", { class: "img" }, img, h("span", { class: "no" }, String(i + 1))),
+        h("span", { class: "cap" }, e.label));
+    }));
+    frag.appendChild(h("div", {}, h("div", { class: "sech" }, "Screenshots", h("span", {}, String(shots.length))), strip));
   }
 
-  if (r.status === "fail" && r.error) {
-    const pre = document.createElement("pre");
-    pre.className = "trace";
-    pre.textContent = r.error.trim();
-    frag.appendChild(pre);
-    if (r.traceDir) {
-      const cmd = document.createElement("div");
-      cmd.className = "tracecmd";
-      cmd.textContent = `npx playwright show-trace reports/${window.__runId}/${r.traceDir}/trace_1.zip`;
-      frag.appendChild(cmd);
-    }
+  // 3. steps, in plain words
+  if (steps.length) {
+    const multi = /\+/.test(info.viewport || "");
+    const list = h("ul", { class: "steps" }, steps.map(({ e, refs }) => {
+      const bad = e.level === "error";
+      const { vp, parts } = parseStep(e.text);
+      return h("li", { class: bad ? "bad" : "" },
+        bad ? h("span", { class: "mk c-fail", html: icon("fail") }) : h("span", { class: "mk" }, h("span", { class: "dot" })),
+        h("span", { class: "txt" + (e.kind === "note" ? " note" : "") }, parts,
+          multi && vp ? h("span", { class: "vp" }, vp) : null,
+          refs.map((n) => h("button", { class: "ref", type: "button", onclick: (ev) => openLightbox(shotSrc(shots[n - 1]), shots[n - 1].label, ev.currentTarget) }, "Screenshot " + n))),
+        h("span", { class: "tm" }, clock(e.ts)));
+    }));
+    frag.appendChild(h("div", {}, h("div", { class: "sech" }, "Steps"), list));
   }
-  if (r.status === "skipped" && r.reason) {
-    const p = document.createElement("p");
-    p.className = "empty";
-    p.textContent = "Skipped — " + r.reason;
-    frag.appendChild(p);
-  }
+
+  if (r.status === "skipped" && r.reason) frag.appendChild(h("p", { class: "empty" }, "Skipped — " + r.reason));
 
   const switched = lastShown !== selected;
   const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 60;
   log.innerHTML = "";
   log.appendChild(frag);
-  // Opening a test starts at the top (its description, first steps, first screenshots);
+  // Opening a test starts at the top (why it failed, first screenshots);
   // a test that is still running keeps following the newest line.
   if (switched) log.scrollTop = r.status === "running" ? log.scrollHeight : 0;
   else if (stick && r.status === "running") log.scrollTop = log.scrollHeight;
   lastShown = selected;
 }
 
-function openLightbox(src, alt) {
+/* ---- screenshot viewer: a real dialog (focus in, focus back, Esc closes) ---- */
+let lbOpener = null;
+function openLightbox(src, alt, opener) {
   const box = $("lightbox");
   const img = box.querySelector("img");
   img.src = src; img.alt = alt;
-  box.classList.add("open");
+  lbOpener = opener || null;
+  box.classList.add("open"); box.setAttribute("aria-hidden", "false");
+  $("lb-close").focus();
 }
-$("lightbox").onclick = () => $("lightbox").classList.remove("open");
+function closeLightbox() {
+  const box = $("lightbox");
+  box.classList.remove("open"); box.setAttribute("aria-hidden", "true");
+  if (lbOpener && lbOpener.isConnected) lbOpener.focus();
+  lbOpener = null;
+}
+$("lightbox").onclick = closeLightbox;
+$("lightbox").addEventListener("keydown", (e) => { if (e.key === "Tab") { e.preventDefault(); $("lb-close").focus(); } });
 
 function recount() {
   let p = 0, f = 0, s = 0, run = 0, wait = 0;
@@ -537,23 +640,21 @@ function recount() {
   const total = rows.size;
   if (!total) return;
   const idx = order.findIndex((o) => rows.get(o).status === "running");
-  const now = $("bp-now");
-  if (finished) now.textContent = f ? `Finished — ${f} of ${total} tests failed` : `Finished — all ${total} tests done`;
-  else if (idx >= 0) now.textContent = `Test ${idx + 1} of ${total}`;
-  else now.textContent = `${p + f + s} of ${total} tests done`;
-  const bits = [
-    `<span class="c-pass"><b>${p}</b> passed</span>`,
-    `<span class="c-fail"><b>${f}</b> failed</span>`,
-    `<span class="c-run"><b>${run}</b> running</span>`,
-    `<span><b>${wait}</b> waiting</span>`,
-  ];
-  if (s) bits.push(`<span><b>${s}</b> skipped (real-money tests only run on purpose)</span>`);
-  $("bp-counts").innerHTML = bits.join("");
-  const w = (n) => (n / total * 100).toFixed(2) + "%";
-  document.querySelector(".bp-bar .p").style.width = w(p);
-  document.querySelector(".bp-bar .f").style.width = w(f);
-  document.querySelector(".bp-bar .s").style.width = w(s);
-  document.querySelector(".bp-bar .r").style.width = w(run);
+  const bits = [];
+  if (!finished && idx >= 0) bits.push(h("span", {}, `Test ${idx + 1} of ${total}`));
+  bits.push(h("span", { class: "p" }, h("i"), h("b", {}, String(p)), " passed"));
+  bits.push(h("span", { class: "f" }, h("i"), h("b", {}, String(f)), " failed"));
+  if (run) bits.push(h("span", { class: "r" }, h("i"), h("b", {}, String(run)), " running"));
+  if (wait) bits.push(h("span", {}, h("i"), h("b", {}, String(wait)), " waiting"));
+  if (s) bits.push(h("span", { title: "Real-money tests only run on purpose" }, h("i"), h("b", {}, String(s)), " skipped"));
+  $("tally").replaceChildren(...bits);
+  // segments sit side by side on one line; only transform animates
+  let at = 0;
+  for (const [cls, n] of [["p", p], ["f", f], ["s", s], ["r", run]]) {
+    const frac = n / total;
+    document.querySelector(".prog ." + cls).style.transform = `translateX(${(at * 100).toFixed(2)}%) scaleX(${frac.toFixed(4)})`;
+    at += frac;
+  }
 }
 
 function apply(e) {
@@ -564,18 +665,14 @@ function apply(e) {
       area: r.area, script: r.script, money: r.money,
       title: r.title, summary: r.summary, description: r.description, verifies: r.verifies, viewport: r.viewport,
     });
-    $("target").textContent = `${e.run_id} → ${e.base_url}`;
-    $("mode").textContent = e.headless ? "headless" : "headed";
-    $("state").textContent = "running";
+    $("target").textContent = `${e.run_id} · ${e.base_url}`;
+    $("target").title = e.headless ? "Runs in the background (headless)" : "Runs in a visible browser window";
     renderRows(); recount();
     return;
   }
   if (e.kind === "run_end") {
     finished = true;
     recount();
-    const badge = $("state");
-    badge.textContent = e.failed ? `finished — ${e.failed} failed` : "finished";
-    badge.className = "pill " + (e.failed ? "live" : "done");
     return;
   }
   if (!e.order) return;
@@ -612,7 +709,7 @@ async function poll() {
   setTimeout(poll, finished ? 2000 : 500);
 }
 /* ================= editor drawer: catalog entry + script ================= */
-const drawer = { open: false, mode: "edit", order: null, after: null, tab: "catalog", draft: {}, dirty: false, timer: null, msg: null };
+const drawer = { open: false, mode: "edit", order: null, after: null, tab: "catalog", draft: {}, dirty: false, timer: null, msg: null, confirming: null };
 const pendingJob = {};        // order -> rebuild job id waiting for approval (survives closing the drawer)
 const EDIT_KEYS = ["title", "area", "summary", "description", "verifies", "credentials", "email", "viewport", "money", "manual", "sensitive"];
 
@@ -622,26 +719,34 @@ function fieldsOf(row) {
   return out;
 }
 
-function openDrawer(opts) {
-  if (drawer.open && drawer.dirty && !confirm("You have changes that are not saved. Discard them?")) return;
+/* Unsaved changes: ask inside the panel (in the footer), not with a browser pop-up */
+function guard(then) {
+  if (drawer.open && drawer.dirty) { drawer.confirming = then; renderFoot(); return; }
+  then();
+}
+
+function openDrawer(opts) { guard(() => doOpen(opts)); }
+
+function doOpen(opts) {
   if (drawer.open && opts.mode === "edit" && drawer.mode === "edit" && drawer.order === opts.order && drawer.tab === (opts.tab || "catalog")) {
-    closeDrawer(true); return;      // clicking the same icon again closes it
+    doClose(); return;      // clicking the same icon again closes it
   }
   clearTimeout(drawer.timer);
   const isNew = opts.mode === "new";
   const neighbour = cat.get(opts.after);
   Object.assign(drawer, {
     open: true, mode: opts.mode, order: opts.order || null, after: opts.after ?? null,
-    tab: isNew ? "catalog" : (opts.tab || "catalog"), dirty: false, msg: null,
+    tab: isNew ? "catalog" : (opts.tab || "catalog"), dirty: false, msg: null, confirming: null,
     draft: isNew ? Object.assign(fieldsOf(null), { area: neighbour?.area || "", viewport: "desktop" }) : fieldsOf(cat.get(opts.order)),
   });
   renderDrawer(); renderRows();
 }
 
-function closeDrawer(force) {
-  if (!force && drawer.dirty && !confirm("You have changes that are not saved. Discard them?")) return;
+function closeDrawer(force) { if (force) doClose(); else guard(doClose); }
+
+function doClose() {
   clearTimeout(drawer.timer);
-  drawer.open = false; drawer.dirty = false;
+  drawer.open = false; drawer.dirty = false; drawer.confirming = null;
   renderDrawer(); renderRows();
 }
 
@@ -661,10 +766,10 @@ function renderDrawer() {
   el.setAttribute("aria-hidden", String(!drawer.open));
   if (!drawer.open) return;
   const c = drawer.mode === "edit" ? cat.get(drawer.order) : null;
-  $("dr-title").textContent = drawer.mode === "new" ? "New test" : (c?.title || drawer.order);
+  $("dr-title").textContent = drawer.mode === "new" ? "New test" : "Edit test";
   $("dr-sub").textContent = drawer.mode === "new"
-    ? (drawer.after ? `will be added after test ${drawer.after}` : "will be added at the top")
-    : `test ${drawer.order} · ${c?.script ? "scripts/" + c.script : "done by hand"}`;
+    ? (drawer.after ? `Will be added after test ${drawer.after}` : "Will be added at the top")
+    : `${c?.title || drawer.order} · test ${drawer.order}`;
   for (const b of $("dr-tabs").querySelectorAll("button")) {
     const t = b.dataset.tab;
     b.setAttribute("aria-selected", String(t === drawer.tab));
@@ -673,6 +778,7 @@ function renderDrawer() {
   }
   renderMsg();
   renderBody();
+  renderFoot();
 }
 
 function switchTab(t) {
@@ -689,46 +795,63 @@ function renderBody() {
   else renderScriptTab();
 }
 
-/* ---- catalog tab ---- */
+/* fixed footer: the buttons never scroll out of sight */
+function renderFoot() {
+  const foot = $("dr-foot");
+  foot.innerHTML = "";
+  if (!drawer.open) return;
+  if (drawer.confirming) {
+    foot.append(
+      h("span", { class: "st ask", role: "alert" }, "Discard your unsaved changes?"),
+      h("button", { class: "btn ghost", type: "button", onclick: () => { drawer.confirming = null; renderFoot(); } }, "Keep editing"),
+      h("button", { class: "btn danger", type: "button", onclick: () => { const go = drawer.confirming; drawer.dirty = false; drawer.confirming = null; go(); } }, "Discard changes"));
+    return;
+  }
+  if (drawer.tab !== "catalog") return;
+  const isNew = drawer.mode === "new";
+  const c = cat.get(drawer.order);
+  const state = isNew ? null : c?.script_state;
+  const status = drawer.dirty ? ["", "Unsaved changes"]
+    : state === "stale" ? ["warn", "The script does not match these words yet"]
+    : state === "draft" ? ["warn", "No script yet"]
+    : state === "ok" ? ["ok", "Script matches this description"] : null;
+  const off = !isNew && !drawer.dirty;
+  foot.append(
+    h("span", { class: "st" }, status ? h("i", { class: status[0] }) : null, status ? status[1] : ""),
+    h("button", { class: "btn ghost", type: "button", onclick: () => closeDrawer() }, drawer.dirty ? "Cancel" : "Close"),
+    h("button", { class: "btn", type: "button", disabled: off, onclick: () => saveCatalog(false) }, isNew ? "Save as draft" : "Save"),
+    h("button", { class: "btn primary", type: "button", disabled: off, onclick: () => saveCatalog(true) }, isNew ? "Save & build script" : "Save & rebuild script"));
+}
+
+/* ---- catalog tab: four fields up front, the rest under "More options" ---- */
 function catalogForm() {
   const d = drawer.draft;
   const isNew = drawer.mode === "new";
-  const c = cat.get(drawer.order);
-  let saveBtn, rebuildBtn;
-  const touch = () => { drawer.dirty = true; if (saveBtn) saveBtn.disabled = false; if (rebuildBtn) rebuildBtn.disabled = false; };
+  const touch = () => { if (!drawer.dirty) { drawer.dirty = true; renderFoot(); } };
   const text = (k) => h("input", { type: "text", value: d[k] || "", oninput: (e) => { d[k] = e.target.value; touch(); } });
-  const area = (k, rows) => h("textarea", { rows, value: d[k] || "", oninput: (e) => { d[k] = e.target.value; touch(); } });
+  const area = (k, rows, cls) => h("textarea", { rows, class: cls || "", value: d[k] || "", oninput: (e) => { d[k] = e.target.value; touch(); } });
   const check = (k, label) => h("label", {}, h("input", { type: "checkbox", checked: !!d[k], onchange: (e) => { d[k] = e.target.checked; touch(); } }), label);
   const viewport = h("select", { onchange: (e) => { d.viewport = e.target.value; touch(); } },
     ["desktop+mobile", "desktop", "mobile", "n/a"].map((v) => h("option", { value: v }, v)));
   viewport.value = d.viewport || "desktop";
 
-  saveBtn = h("button", { class: "btn primary", type: "button", disabled: !isNew, onclick: () => saveCatalog(false) }, isNew ? "Save as draft" : "Save");
-  rebuildBtn = h("button", { class: "btn", type: "button", disabled: !isNew, onclick: () => saveCatalog(true) },
-    isNew ? "Save & build script" : "Save & rebuild script");
-  const note = !isNew && c?.script_state === "stale" ? "The script does not match these words yet."
-    : !isNew && c?.script_state === "draft" ? "No script yet." : "";
-
   return h("div", { class: "form" },
     h("label", {}, "Title", text("title")),
-    h("label", {}, "Area", text("area")),
-    h("label", {}, "Summary", h("span", { class: "hint" }, "One line, shown on the test card."), text("summary")),
-    h("label", {}, isNew ? "What should this test do?" : "What the test does, in your own words",
-      h("span", { class: "hint" }, "Plain English. The script is built from this text."), area("description", 9)),
-    h("label", {}, "What it must check", h("span", { class: "hint" }, "The results that make it pass."), area("verifies", 5)),
-    h("details", {},
-      h("summary", {}, "More: login, email, screen size, flags"),
+    h("label", {}, "Summary", text("summary"), h("span", { class: "hint" }, "One line, shown under the test name in the list.")),
+    h("label", {}, isNew ? "What should this test do?" : "What the test does",
+      area("description", 4), h("span", { class: "hint" }, "Plain English. The script is built from this text.")),
+    h("label", {}, "What it must check", area("verifies", 3, "short"), h("span", { class: "hint" }, "The results that make it pass.")),
+    h("details", { open: isNew },
+      h("summary", {}, "More options"),
       h("div", { class: "row2" },
+        h("label", {}, "Area", text("area")),
+        h("label", {}, "Screen size", viewport),
         h("label", {}, "Login used", text("credentials")),
-        h("label", {}, "Email used", text("email")),
-        h("label", {}, "Screen size", viewport)),
+        h("label", {}, "Email used", text("email"))),
       h("div", { class: "checks" },
-        check("money", "💰 Moves real money"),
+        check("money", "Moves real money"),
         check("sensitive", "Types secrets (never keep a trace)"),
-        check("manual", "Done by hand (no script)"))),
-    h("div", { class: "actions" }, saveBtn, rebuildBtn,
-      h("button", { class: "btn", type: "button", onclick: () => closeDrawer() }, "Close"),
-      h("span", { class: "status" }, note)));
+        check("manual", "Done by hand (no script)"))));
 }
 
 async function saveCatalog(thenRebuild) {
@@ -780,10 +903,10 @@ function scriptView(info) {
   return h("div", {},
     h("div", { class: "codebar" },
       h("code", {}, info.script ? "scripts/" + info.script : ""),
-      state === "stale" && h("span", { class: "badge stale" }, "out of date"),
-      state === "draft" && h("span", { class: "badge draft" }, "no script yet"),
-      state === "ok" && h("span", { class: "badge" }, "matches the catalog"),
-      when && h("span", { class: "hint", style: "color:var(--dim);font-size:12px" }, when),
+      state === "stale" && h("span", { class: "chip stale" }, "Out of date"),
+      state === "draft" && h("span", { class: "chip draft" }, "No script yet"),
+      state === "ok" && h("span", { class: "chip" }, "Matches the catalog"),
+      when && h("span", { class: "note" }, when),
       h("span", { class: "spacer" }),
       info.exists && h("button", { class: "btn", type: "button", onclick: async (e) => {
         try { await navigator.clipboard.writeText(info.code); e.target.textContent = "Copied"; } catch (err) { e.target.textContent = "Copy failed"; }
@@ -820,13 +943,13 @@ async function showJob(id) {
   }
   if (job.state === "approved" || job.state === "rejected") { delete pendingJob[order]; return renderScriptTab(); }
   if (job.state === "error") {
-    body.appendChild(h("div", { class: "msg err" }, job.error || "The rebuild failed."));
-    body.appendChild(h("div", { class: "actions", style: "margin-top:14px" },
+    body.appendChild(h("div", { class: "msg err", style: "padding:9px 14px;border-radius:8px;background:var(--fail-soft);color:var(--fail);font-size:13px" }, job.error || "The rebuild failed."));
+    body.appendChild(h("div", { class: "actions" },
       h("button", { class: "btn primary", type: "button", onclick: () => { delete pendingJob[order]; startRebuild(); } }, "Try again"),
       h("button", { class: "btn", type: "button", onclick: async (e) => {
         try { await navigator.clipboard.writeText(job.prompt || ""); e.target.textContent = "Prompt copied: paste it into Claude Code"; } catch (err) { e.target.textContent = "Copy failed"; }
       } }, "Copy the prompt"),
-      h("button", { class: "btn", type: "button", onclick: () => { api("/api/script/reject", { job: id }).catch(() => {}); delete pendingJob[order]; renderScriptTab(); } }, "Back to the script")));
+      h("button", { class: "btn ghost", type: "button", onclick: () => { api("/api/script/reject", { job: id }).catch(() => {}); delete pendingJob[order]; renderScriptTab(); } }, "Back to the script")));
     return;
   }
   // done: show the diff
@@ -846,7 +969,7 @@ async function showJob(id) {
     changed && h("button", { class: "btn", type: "button", onclick: () => decideJob(id, false) }, "Reject: keep the current script")));
   if (changed) {
     body.appendChild(codeBox(lines));
-    body.appendChild(h("p", { class: "hint", style: "color:var(--dim);font-size:12.5px" }, "Nothing has been saved yet. The old script is backed up in .history/ when you approve."));
+    body.appendChild(h("p", { class: "hint-line" }, "Nothing has been saved yet. The old script is backed up in .history/ when you approve."));
   }
 }
 
@@ -867,8 +990,8 @@ $("dr-close").onclick = () => closeDrawer();
 $("add-end").onclick = () => openDrawer({ mode: "new", after: catOrder.length ? catOrder[catOrder.length - 1] : null });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  const lb = $("lightbox");
-  if (lb.classList.contains("open")) { lb.classList.remove("open"); return; }
+  if ($("lightbox").classList.contains("open")) { closeLightbox(); return; }
+  if (drawer.confirming) { drawer.confirming = null; renderFoot(); return; }
   if (drawer.open) closeDrawer();
 });
 window.addEventListener("beforeunload", (e) => { if (drawer.open && drawer.dirty) { e.preventDefault(); e.returnValue = ""; } });
@@ -900,8 +1023,10 @@ $("export-btn").addEventListener("click", async () => {
     const res = await fetch("/export", { method: "POST" });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.status);
-    msg.innerHTML = `Saved to <span title="${data.folder}">${data.folder.split("/").slice(-3).join("/")}</span> · `
-      + `<a href="/export/index.html" target="_blank">open</a> · <a href="/export.zip">download zip</a>`;
+    msg.replaceChildren(
+      h("span", { title: data.folder }, "Saved to " + data.folder.split("/").slice(-3).join("/")), " · ",
+      h("a", { href: "/export/index.html", target: "_blank" }, "open"), " · ",
+      h("a", { href: "/export.zip" }, "download zip"));
   } catch (err) { msg.textContent = "Export failed: " + err.message; }
   btn.disabled = false;
 });
