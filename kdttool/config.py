@@ -85,8 +85,22 @@ def activate(name):
         if attr.isupper():
             setattr(module, attr, getattr(project, attr))
 
+    # A catalog saved from the dashboard (catalog.json) wins over catalog_data.py.
+    saved = _load_saved_catalog(project_dir)
+    if saved is not None:
+        module.CATALOG = saved
+
     if not module.BASE_URL or not module.CATALOG:
         raise SystemExit(f"projects/{name}/project.py must define BASE_URL and CATALOG.")
+
+
+def _load_saved_catalog(project_dir):
+    import json
+    path = os.path.join(project_dir, "catalog.json")
+    if not os.path.isfile(path):
+        return None
+    with open(path) as f:
+        return json.load(f)
 
 
 def _this_module():

@@ -44,7 +44,7 @@ def render_catalog_md(status_by_order=None, run_timestamp=None):
         f"# {config.PROJECT_NAME} — KD-TTOOL Catalog",
         "",
         "**Generated file — do not hand-edit the table.** To change a row, edit",
-        f"`projects/{config.PROJECT_NAME}/catalog_data.py` (and the matching script), then re-run",
+        f"`projects/{config.PROJECT_NAME}/{'catalog.json' if os.path.isfile(os.path.join(config.PROJECT_DIR, 'catalog.json')) else 'catalog_data.py'}` (and the matching script), then re-run",
         f"`python run.py --project {config.PROJECT_NAME}`.",
         "",
         *config.CATALOG_INTRO,

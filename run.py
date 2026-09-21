@@ -9,6 +9,7 @@ Usage:
   python run.py --project example --replay 2026-09-13_142211   # reopen a past run's dashboard
   python run.py --project example --report 2026-09-13_142211   # rebuild a past run's report.html
   python run.py --project example --export 2026-09-13_142211   # standalone folder + zip (index.html, images/)
+  python run.py --demo                                # fake run in the dashboard: look at the UI, touch nothing real
   python run.py --list-projects
 
 A project is a folder under projects/ (project.py + catalog_data.py + scripts/). Each
@@ -38,7 +39,7 @@ from kdttool.runner import run_all
 DEFAULT_PROJECT = "example"
 
 
-def _serve(bus, run_dir, port, open_browser):
+def _serve(bus, run_dir, port, open_browser, replay=False):
     """Start the dashboard, falling forward to the next free port if needed.
 
     A dashboard left running from an earlier run (or a --replay you forgot to
@@ -51,7 +52,7 @@ def _serve(bus, run_dir, port, open_browser):
     for attempt in range(10):
         candidate = port + attempt
         try:
-            server, url = dashboard.start(bus, run_dir, candidate)
+            server, url = dashboard.start(bus, run_dir, candidate, replay=replay)
         except OSError:
             continue
         if attempt:
@@ -79,7 +80,7 @@ def _replay(run_id, port):
     if not os.path.exists(events_path):
         print(f"No event log at {events_path} — that run predates the dashboard, or the id is wrong.")
         return 1
-    server, url = _serve(replay_bus(events_path), run_dir, port, open_browser=True)
+    server, url = _serve(replay_bus(events_path), run_dir, port, open_browser=True, replay=True)
     if not server:
         return 1
     print("Replaying a finished run. Ctrl-C to quit.")
@@ -101,13 +102,32 @@ def _write_html(run_id):
     return path
 
 
+def _demo(port):
+    from kdttool import demo
+    bus, run_dir, player = demo.start_demo()
+    server, url = _serve(bus, run_dir, port, open_browser=True)
+    if not server:
+        return 1
+    print("Demo mode: a made-up run, nothing real is touched. Ctrl-C to quit.")
+    player.start()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print()
+    return 0
+
+
 def main():
     # --project must be known before the rest of the CLI is built, because the
     # project supplies defaults (dashboard port) and the catalog the flags refer to.
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--project", default=DEFAULT_PROJECT)
     pre.add_argument("--list-projects", action="store_true")
+    pre.add_argument("--demo", action="store_true")
     known, _ = pre.parse_known_args()
+    if known.demo:
+        known.project = "example"  # demo borrows the tracked example project; it never runs its catalog
     if known.list_projects:
         print("\n".join(config.available_projects()) or "(no projects)")
         return
@@ -128,8 +148,12 @@ def main():
     parser.add_argument("--keep-traces", action="store_true", help="Keep Playwright traces for passing rows too.")
     parser.add_argument("--report", metavar="RUN_ID", help="Rebuild a past run's report.html from its event log; runs nothing.")
     parser.add_argument("--export", metavar="RUN_ID", help="Build a standalone report folder + zip for a run; runs nothing.")
+    parser.add_argument("--demo", action="store_true", help="Play a made-up run in the dashboard (no real site, no catalog) to evaluate the UI.")
     parser.add_argument("--replay", metavar="RUN_ID", help="Serve a past run's dashboard and exit; runs nothing.")
     args = parser.parse_args()
+
+    if args.demo:
+        sys.exit(_demo(args.port))
 
     if args.export:
         built = report.export_folder(args.export)

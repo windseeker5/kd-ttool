@@ -54,6 +54,23 @@ enlarge), so you can double-click it or email it. It is also written if a run is
 `reports/<run_id>/export/`, plus `export.zip`: `index.html` (with the step log), an `images/` folder of the
 real PNG files, `events.jsonl`, and `traces/` for failed rows. Zip it and send it; it needs nothing else.
 
+## Editing tests from the dashboard
+
+The left side of the dashboard is the list of tests, each showing its catalog summary and two icons:
+
+- **Catalog icon (book):** opens an editor that slides in from the left. Change the title, the plain-English
+  description or what it must check, then **Save**. The catalog is stored in `projects/<name>/catalog.json`
+  (created on the first save; `catalog_data.py` is left alone) and `CATALOG.md` is regenerated. Every save
+  first copies the old catalog into `projects/<name>/.history/`.
+- **Script icon (`</>`):** shows the script's code. **Rebuild from catalog** asks `claude -p` (Claude Code on
+  this machine, read-only tools) to rewrite that one script from your words, then shows a diff. Nothing is
+  replaced until you press **Approve**; the old script is backed up in `.history/`.
+- **`+` between two tests** (hover a test) or **+ Add test:** type what the new test should do; it is saved to the
+  catalog as a draft, then **Build script** writes its code the same way.
+
+Edits are refused while a run is in progress. Drag the divider to resize the list. `python run.py --demo` lets you
+try all of this on a made-up catalog without touching a real project.
+
 ## Watching a run: two screens
 
 Start a run with a visible browser and the live dashboard:

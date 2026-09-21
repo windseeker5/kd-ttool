@@ -12,10 +12,11 @@ reason for anything off this machine to reach it.
 import json
 import mimetypes
 import os
+import secrets
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from . import report
+from . import catalog_store, report, scriptgen
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = os.path.dirname(__file__)
@@ -27,7 +28,15 @@ class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     allow_reuse_address = True
 
 
-def _make_handler(bus, run_dir):
+def _make_handler(bus, run_dir, port, token, replay):
+    def run_is_live():
+        """True while a run is executing: edits are refused then, so the runner never sees a half-changed catalog."""
+        if replay:
+            return False
+        events, _ = bus.snapshot()
+        kinds = {e["kind"] for e in events}
+        return "run_start" in kinds and "run_end" not in kinds
+
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args):
             pass  # the run's own output is the thing worth reading in the terminal
@@ -40,13 +49,47 @@ def _make_handler(bus, run_dir):
             self.end_headers()
             self.wfile.write(body)
 
+        def _host_ok(self):
+            # Only our own address: stops another website in the browser from talking to localhost.
+            return self.headers.get("Host", "") in (f"127.0.0.1:{port}", f"localhost:{port}")
+
+        def _json(self, code, obj):
+            self._send(code, json.dumps(obj).encode(), "application/json")
+
         def do_GET(self):
+            if not self._host_ok():
+                self._send(403, b"forbidden", "text/plain")
+                return
             parsed = urlparse(self.path)
             route = parsed.path
 
             if route in ("/", "/index.html"):
                 with open(PAGE_PATH, "rb") as f:
-                    self._send(200, f.read(), "text/html; charset=utf-8")
+                    page = f.read().replace(b"__KD_TOKEN__", token.encode())
+                self._send(200, page, "text/html; charset=utf-8")
+                return
+
+            if route == "/api/catalog":
+                self._json(200, {"rows": catalog_store.public_rows(), "live": run_is_live(), "replay": replay})
+                return
+
+            if route == "/api/script":
+                order = (parse_qs(parsed.query).get("order") or [""])[0]
+                row = catalog_store.find_row(order)
+                if row is None:
+                    self._json(404, {"error": "No such test."})
+                    return
+                path = catalog_store.script_path(row)
+                self._json(200, {
+                    "order": order, "script": row.get("script"), "code": scriptgen.read_script(row),
+                    "exists": bool(path and os.path.isfile(path)),
+                    "modified": os.path.getmtime(path) if path and os.path.isfile(path) else None,
+                })
+                return
+
+            if route == "/api/job":
+                job = scriptgen.get_job((parse_qs(parsed.query).get("id") or [""])[0])
+                self._json(200 if job else 404, job or {"error": "Unknown job."})
                 return
 
             if route == "/events":
@@ -96,27 +139,71 @@ def _make_handler(bus, run_dir):
             self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
-            if urlparse(self.path).path != "/export":
-                self._send(404, b"not found", "text/plain")
+            route = urlparse(self.path).path
+            if not self._host_ok() or self.headers.get("X-KD-Token") != token:
+                self._json(403, {"error": "Forbidden."})
                 return
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+            except (ValueError, json.JSONDecodeError):
+                self._json(400, {"error": "Bad request."})
+                return
+
+            if route == "/export":
+                self._export()
+                return
+
+            editing = {
+                "/api/catalog/save", "/api/catalog/insert", "/api/script/rebuild",
+                "/api/script/approve",
+            }
+            if route in editing and run_is_live():
+                self._json(409, {"error": "A run is in progress. Edit the catalog once it has finished."})
+                return
+            try:
+                if route == "/api/catalog/save":
+                    row = catalog_store.save_row(body.get("order", ""), body.get("fields") or {})
+                    self._json(200, {"row": row})
+                elif route == "/api/catalog/insert":
+                    row = catalog_store.insert_row(body.get("after"), body.get("fields") or {})
+                    self._json(200, {"row": row})
+                elif route == "/api/script/rebuild":
+                    self._json(200, {"job": scriptgen.start_rebuild(body.get("order", ""))})
+                elif route == "/api/script/approve":
+                    row = scriptgen.approve(body.get("job", ""))
+                    self._json(200, {"row": dict(row, script_state=catalog_store.script_state(row))})
+                elif route == "/api/script/reject":
+                    scriptgen.reject(body.get("job", ""))
+                    self._json(200, {"ok": True})
+                else:
+                    self._json(404, {"error": "Not found."})
+            except catalog_store.CatalogError as exc:
+                self._json(400, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
+                self._json(500, {"error": str(exc)})
+
+        def _export(self):
             run_id = os.path.basename(run_dir)
             try:
                 built = report.export_folder(run_id)
-            except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
-                self._send(500, json.dumps({"error": str(exc)}).encode(), "application/json")
+            except Exception as exc:  # noqa: BLE001
+                self._json(500, {"error": str(exc)})
                 return
             if not built:
-                self._send(404, json.dumps({"error": "no event log for this run"}).encode(), "application/json")
+                self._json(404, {"error": "no event log for this run"})
                 return
             folder, zip_path = built
-            self._send(200, json.dumps({"folder": folder, "zip": zip_path}).encode(), "application/json")
+            self._json(200, {"folder": folder, "zip": zip_path})
 
     return Handler
 
 
-def start(bus, run_dir, port):
-    """Serve the dashboard on a daemon thread. Returns (server, url)."""
-    server = _ThreadingHTTPServer(("127.0.0.1", port), _make_handler(bus, run_dir))
+def start(bus, run_dir, port, replay=False):
+    """Serve the dashboard on a daemon thread. Returns (server, url).
+    `replay` marks a finished run being reopened: catalog edits are always allowed there."""
+    token = secrets.token_urlsafe(24)
+    server = _ThreadingHTTPServer(("127.0.0.1", port), _make_handler(bus, run_dir, port, token, replay))
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, f"http://127.0.0.1:{port}"
