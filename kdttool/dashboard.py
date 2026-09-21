@@ -10,10 +10,12 @@ reason for anything off this machine to reach it.
 """
 
 import json
+import mimetypes
 import os
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
+from . import report
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = os.path.dirname(__file__)
@@ -65,7 +67,49 @@ def _make_handler(bus, run_dir):
                     self._send(200, f.read(), "image/png")
                 return
 
+            if route == "/export.zip":
+                zip_path = os.path.join(run_dir, "export.zip")
+                if not os.path.isfile(zip_path):
+                    self._send(404, b"not found", "text/plain")
+                    return
+                with open(zip_path, "rb") as f:
+                    body = f.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", f'attachment; filename="report_{os.path.basename(run_dir)}.zip"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if route.startswith("/export/"):
+                root = os.path.realpath(os.path.join(run_dir, "export"))
+                full = os.path.realpath(os.path.join(root, unquote(route[len("/export/"):]) or "index.html"))
+                if not full.startswith(root + os.sep) or not os.path.isfile(full):
+                    self._send(404, b"not found", "text/plain")
+                    return
+                ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+                with open(full, "rb") as f:
+                    self._send(200, f.read(), ctype)
+                return
+
             self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):
+            if urlparse(self.path).path != "/export":
+                self._send(404, b"not found", "text/plain")
+                return
+            run_id = os.path.basename(run_dir)
+            try:
+                built = report.export_folder(run_id)
+            except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
+                self._send(500, json.dumps({"error": str(exc)}).encode(), "application/json")
+                return
+            if not built:
+                self._send(404, json.dumps({"error": "no event log for this run"}).encode(), "application/json")
+                return
+            folder, zip_path = built
+            self._send(200, json.dumps({"folder": folder, "zip": zip_path}).encode(), "application/json")
 
     return Handler
 

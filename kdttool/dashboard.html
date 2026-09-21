@@ -32,6 +32,12 @@
     font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
     padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim);
   }
+  #export-btn {
+    font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: transparent; color: var(--text);
+  }
+  #export-btn:hover { border-color: var(--dim); } #export-btn:disabled { opacity: .5; cursor: wait; }
+  #export-msg a { color: inherit; }
   .pill.live { color: var(--run); border-color: #4a3c14; background: #241d0b; }
   .pill.done { color: var(--pass); border-color: #1c3d23; background: #0f2113; }
 
@@ -162,6 +168,8 @@
   <span class="meta" id="target">connecting…</span>
   <span class="pill" id="mode"></span>
   <span class="spacer"></span>
+  <span id="export-msg" class="meta"></span>
+  <button id="export-btn" type="button">Export report</button>
   <span class="pill live" id="state">waiting</span>
 </header>
 
@@ -443,6 +451,19 @@ async function poll() {
   setTimeout(poll, finished ? 2000 : 500);
 }
 poll();
+
+$("export-btn").addEventListener("click", async () => {
+  const btn = $("export-btn"), msg = $("export-msg");
+  btn.disabled = true; msg.textContent = "Building report…";
+  try {
+    const res = await fetch("/export", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.status);
+    msg.innerHTML = `Saved to <span title="${data.folder}">${data.folder.split("/").slice(-3).join("/")}</span> · `
+      + `<a href="/export/index.html" target="_blank">open</a> · <a href="/export.zip">download zip</a>`;
+  } catch (err) { msg.textContent = "Export failed: " + err.message; }
+  btn.disabled = false;
+});
 </script>
 </body>
 </html>

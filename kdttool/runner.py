@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import re
 import time
 import traceback
 
@@ -40,6 +41,7 @@ class Context:
         # row) so a report and the screenshots it points at can never drift
         # apart, and an old run's evidence is never overwritten by a later one.
         self._shot_dir = os.path.join(config.run_dir(run_id), row_dir_name(order, script_name))
+        self._shot_count = 0
 
     def note(self, message):
         self._notes.append(message)
@@ -54,7 +56,10 @@ class Context:
 
     def screenshot(self, page, label):
         os.makedirs(self._shot_dir, exist_ok=True)
-        filename = f"{label}.png"
+        # Numbered so a label reused within a row can never overwrite an earlier shot.
+        self._shot_count += 1
+        safe = re.sub(r"[^\w.-]+", "_", str(label)).strip("_") or "shot"
+        filename = f"{self._shot_count:02d}_{safe}.png"
         full_path = os.path.join(self._shot_dir, filename)
         page.screenshot(path=full_path, full_page=True)
         # Relative to the run dir, which is where report.md now lives too.
@@ -63,6 +68,18 @@ class Context:
         if self._bus:
             self._bus.emit("screenshot", order=self.order, label=label, path=rel_path)
         return full_path
+
+    def collect_failure_shots(self):
+        """Register the FAILED_*.png files browser.py saved when a page raised."""
+        if not os.path.isdir(self._shot_dir):
+            return
+        run_dir = config.run_dir(self.run_id)
+        for name in sorted(os.listdir(self._shot_dir)):
+            if name.startswith("FAILED_") and name.endswith(".png"):
+                rel_path = os.path.relpath(os.path.join(self._shot_dir, name), run_dir)
+                self._screenshots.append(rel_path)
+                if self._bus:
+                    self._bus.emit("screenshot", order=self.order, label="failure", path=rel_path)
 
 
 def _load_script_module(script_path):
@@ -170,7 +187,7 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
         start = time.monotonic()
         try:
             # One browser for the whole row; new_page() makes contexts on it.
-            browser.start_row_session(row["order"], ctx._shot_dir, bus)
+            browser.start_row_session(row["order"], ctx._shot_dir, bus, failure_shots=not row.get("sensitive"))
             module = _load_script_module(script_path)
             module.run(ctx)
             result["status"] = "pass"
@@ -182,6 +199,7 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
             if row.get("sensitive"):
                 _drop_traces(config.run_dir(run_id), row_dir_name(row["order"], row["script"]))
             result["duration_s"] = time.monotonic() - start
+            ctx.collect_failure_shots()
             result["screenshots"] = ctx._screenshots
             result["notes"].extend(ctx._notes)
 

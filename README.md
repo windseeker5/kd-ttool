@@ -36,11 +36,39 @@ Common options:
 ./venv/bin/python run.py --project example --headed            # watch a real browser window
 ./venv/bin/python run.py --project example --no-dashboard      # no live dashboard
 ./venv/bin/python run.py --project example --replay <run_id>   # reopen a past run's dashboard
+./venv/bin/python run.py --project example --report <run_id>   # rebuild a past run's report.html
+./venv/bin/python run.py --project example --export <run_id>   # standalone folder + zip of a run
 ./venv/bin/python run.py --project example --confirm-money     # also run rows that move real money
 ```
 
-Each run writes `projects/<project>/reports/<run_id>/` (`report.md`, `events.jsonl`, one folder of
-screenshots per row) and refreshes `projects/<project>/CATALOG.md`.
+Each run writes `projects/<project>/reports/<run_id>/` (`report.html`, `report.md`, `events.jsonl`, one
+folder of screenshots per row) and refreshes `projects/<project>/CATALOG.md`.
+
+**`report.html` is the one to open.** It is a single file with every screenshot embedded (click one to
+enlarge), so you can double-click it or email it. It is also written if a run is interrupted, and
+`--report <run_id>` rebuilds it for any past run. Screenshots are numbered per row (`01_home.png`,
+`02_home.png`, ...) so a repeated label never overwrites one, and a failed row gets an automatic
+`FAILED_*.png` of the page as it was (skipped for `sensitive` rows).
+
+**Export report** (button at the top of the dashboard, or `--export <run_id>`) builds a standalone folder,
+`reports/<run_id>/export/`, plus `export.zip`: `index.html` (with the step log), an `images/` folder of the
+real PNG files, `events.jsonl`, and `traces/` for failed rows. Zip it and send it; it needs nothing else.
+
+## Watching a run: two screens
+
+Start a run with a visible browser and the live dashboard:
+
+```bash
+./venv/bin/python run.py --project <name> --headed
+```
+
+- **Screen 1, the dashboard:** opens by itself in your browser (address printed at the start, port 8899
+  or the next free one). Rows fill in live with the step log and each screenshot.
+- **Screen 2, the test browser:** `--headed` opens a real Chrome window that clicks through the site.
+  Put the two side by side.
+
+Leave out `--headed` to run hidden (dashboard only). Add `--only 01,01d` for specific rows, and
+`--confirm-money` only when you are present to pay. Reopen a finished run with `--replay <run_id>`.
 
 ## Layout
 
@@ -87,6 +115,8 @@ Only `projects/example/` is tracked by git. Everything else under `projects/` is
 cannot be pushed by accident. Put secrets in `projects/<name>/.env` (also ignored); commit only
 `.env.example` with placeholders. If you want your project versioned, give it its own **private**
 repository.
+
+A project folder may also hold its own `README.md` listing what to improve next.
 
 ## Requirements
 

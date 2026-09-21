@@ -7,6 +7,8 @@ Usage:
   python run.py --project example --headed           # watch it in a real Chrome window
   python run.py --project example --confirm-money    # also run rows that move real money
   python run.py --project example --replay 2026-09-13_142211   # reopen a past run's dashboard
+  python run.py --project example --report 2026-09-13_142211   # rebuild a past run's report.html
+  python run.py --project example --export 2026-09-13_142211   # standalone folder + zip (index.html, images/)
   python run.py --list-projects
 
 A project is a folder under projects/ (project.py + catalog_data.py + scripts/). Each
@@ -18,7 +20,8 @@ it's taken. Pass --headed when you'd rather watch the real clicks happen; rows
 90/91 are always headed regardless, since you have to type a real card number.
 
 Everything a run produces lands in one folder, projects/<project>/reports/<run_id>/: events.jsonl,
-report.md, and a directory per row holding its screenshots (plus a Playwright
+report.md, report.html (one self-contained file with every screenshot embedded, so it opens by
+double-click), and a directory per row holding its screenshots (plus a Playwright
 trace, kept only for rows that failed unless you pass --keep-traces).
 """
 
@@ -88,6 +91,16 @@ def _replay(run_id, port):
     return 0
 
 
+def _write_html(run_id):
+    """Build report.html for a run; never let a report problem hide the run's own outcome."""
+    try:
+        path = report.write_html_report(run_id)
+    except Exception as exc:  # noqa: BLE001
+        print(f"Could not build report.html: {exc}")
+        return None
+    return path
+
+
 def main():
     # --project must be known before the rest of the CLI is built, because the
     # project supplies defaults (dashboard port) and the catalog the flags refer to.
@@ -113,8 +126,23 @@ def main():
     parser.add_argument("--no-dashboard", action="store_true", help="Don't start or open the live dashboard.")
     parser.add_argument("--port", type=int, default=config.DASHBOARD_PORT, help="Dashboard port (default %(default)s).")
     parser.add_argument("--keep-traces", action="store_true", help="Keep Playwright traces for passing rows too.")
+    parser.add_argument("--report", metavar="RUN_ID", help="Rebuild a past run's report.html from its event log; runs nothing.")
+    parser.add_argument("--export", metavar="RUN_ID", help="Build a standalone report folder + zip for a run; runs nothing.")
     parser.add_argument("--replay", metavar="RUN_ID", help="Serve a past run's dashboard and exit; runs nothing.")
     args = parser.parse_args()
+
+    if args.export:
+        built = report.export_folder(args.export)
+        if not built:
+            print(f"No event log for run {args.export}.")
+            sys.exit(1)
+        print(f"Folder: {built[0]}\nZip:    {built[1]}")
+        sys.exit(0)
+
+    if args.report:
+        path = _write_html(args.report)
+        print(f"HTML report: {path}" if path else f"No event log for run {args.report}.")
+        sys.exit(0 if path else 1)
 
     if args.replay:
         sys.exit(_replay(args.replay, args.port))
@@ -134,10 +162,18 @@ def main():
     if not args.no_dashboard:
         server, dashboard_url = _serve(bus, run_dir, args.port, open_browser=True)
 
-    results, manual_reminders, run_id = run_all(
-        only=only, money_confirmed=args.confirm_money, bus=bus,
-        run_id=run_id, keep_traces=args.keep_traces,
-    )
+    try:
+        results, manual_reminders, run_id = run_all(
+            only=only, money_confirmed=args.confirm_money, bus=bus,
+            run_id=run_id, keep_traces=args.keep_traces,
+        )
+    except BaseException:
+        # Ctrl-C or a crash mid-run: the screenshots taken so far still get a report.
+        partial = _write_html(run_id)
+        if partial:
+            print(f"\nRun interrupted. Partial HTML report: {partial}")
+        bus.close()
+        raise
 
     report_path = report.write_report(results, run_id, manual_reminders)
 
@@ -152,7 +188,10 @@ def main():
     bus.emit("run_end", passed=passed, failed=failed, skipped=skipped, report_path=report_path)
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    html_path = _write_html(run_id)
     print(f"Report:  {report_path}")
+    if html_path:
+        print(f"HTML:    {html_path}")
     print(f"Catalog: {catalog_path}")
 
     if manual_reminders:

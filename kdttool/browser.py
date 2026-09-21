@@ -63,7 +63,7 @@ _STEP_PROBE = """
 """
 
 
-def start_row_session(order, row_dir, bus, headless=None):
+def start_row_session(order, row_dir, bus, headless=None, failure_shots=True):
     """Open one browser for a catalog row. Called by kdttool/runner.py."""
     global _session
     stop_row_session()
@@ -73,6 +73,7 @@ def start_row_session(order, row_dir, bus, headless=None):
     _session = {
         "pw": pw, "browser": browser, "headless": headless,
         "order": order, "row_dir": row_dir, "bus": bus, "traces": 0,
+        "failure_shots": failure_shots, "failures": 0,
     }
     return _session
 
@@ -178,6 +179,20 @@ def new_page(viewport="desktop", headless=None):
             browser.close()
 
 
+def _failure_screenshot(page, viewport):
+    """Best-effort picture of the page at the moment a row raised. Skipped for
+    `sensitive` rows, whose pages may be showing secrets."""
+    if not (_session and _session.get("row_dir") and _session.get("failure_shots")):
+        return
+    try:
+        _session["failures"] += 1
+        os.makedirs(_session["row_dir"], exist_ok=True)
+        name = f"FAILED_{viewport}_{_session['failures']}.png"
+        page.screenshot(path=os.path.join(_session["row_dir"], name), full_page=True)
+    except Exception:  # noqa: BLE001 - never mask the real failure
+        pass
+
+
 @contextmanager
 def _page_on(browser, viewport):
     context = browser.new_context(
@@ -192,6 +207,9 @@ def _page_on(browser, viewport):
     _instrument(page, viewport)
     try:
         yield page
+    except Exception:
+        _failure_screenshot(page, viewport)
+        raise
     finally:
         if trace_path:
             try:
