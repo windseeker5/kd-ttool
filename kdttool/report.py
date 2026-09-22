@@ -23,6 +23,16 @@ def _traces_for(run_timestamp, result):
     )
 
 
+def format_duration(seconds):
+    """1789.6 -> '29m 50s'; 42 -> '42s'; 4000 -> '1h 06m 40s'."""
+    s = int(round(seconds))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return f"{h}h {m:02d}m {sec:02d}s"
+    return f"{m}m {sec:02d}s" if m else f"{sec}s"
+
+
 def write_report(results, run_timestamp, manual_reminders):
     """results: list of dicts with keys order, script, area, status, duration_s,
     error, screenshots (list of paths relative to the run dir), notes (list of str).
@@ -42,6 +52,8 @@ def write_report(results, run_timestamp, manual_reminders):
         f"Target: `{config.BASE_URL}`",
         "",
         f"**{passed}/{total} passed**, {failed} failed, {skipped} skipped.",
+        "",
+        f"Total time: {format_duration(sum(r['duration_s'] for r in results))}",
         "",
         f"Replay this run in the live dashboard: `python run.py --project {config.PROJECT_NAME} --replay {run_timestamp}`",
         "",
@@ -157,16 +169,19 @@ def _render_html(run_id, image_src):
 
     rows, order_seen = {}, []
     base_url, finished = "", False
+    started_ts = ended_ts = None
     for e in events:
         kind, order = e.get("kind"), e.get("order")
         if kind == "run_start":
             base_url = e.get("base_url", "")
+            started_ts = e.get("ts")
             for r in e.get("rows", []):
                 rows[r["order"]] = dict(r, status="not run", duration_s=None, error=None,
                                         notes=[], shots=[], steps=[], reason=None)
                 order_seen.append(r["order"])
         elif kind == "run_end":
             finished = True
+            ended_ts = e.get("ts")
         elif order in rows:
             row = rows[order]
             if kind == "row_start":
@@ -192,7 +207,8 @@ def _render_html(run_id, image_src):
         f"<title>{esc(config.PROJECT_NAME)} UAT report {esc(run_id)}</title>",
         f"<style>{_HTML_STYLE}</style></head><body><main>",
         f"<h1>{esc(config.PROJECT_NAME)} — UAT run report</h1>",
-        f"<div class='mute'>Run {esc(run_id)} · target {esc(base_url)}</div>",
+        f"<div class='mute'>Run {esc(run_id)} · target {esc(base_url)}"
+        + (f" · total time {format_duration(ended_ts - started_ts)}" if started_ts and ended_ts else "") + "</div>",
         "<div class='summary'>",
         f"<span class='pill pass'>{counts['pass']} passed</span>",
         f"<span class='pill fail'>{counts['fail']} failed</span>",

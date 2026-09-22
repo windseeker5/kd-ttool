@@ -5,6 +5,7 @@ Usage:
   python run.py --project example                    # everything except money-tier + manual rows
   python run.py --project example --only 01,02        # just these catalog rows
   python run.py --project example --headed           # watch it in a real Chrome window
+  python run.py --project example --wait             # start the tool, then wait for you to click Play in the dashboard
   python run.py --project example --confirm-money    # also run rows that move real money
   python run.py --project example --replay 2026-09-13_142211   # reopen a past run's dashboard
   python run.py --project example --report 2026-09-13_142211   # rebuild a past run's report.html
@@ -39,7 +40,7 @@ from kdttool.runner import run_all
 DEFAULT_PROJECT = "example"
 
 
-def _serve(bus, run_dir, port, open_browser, replay=False):
+def _serve(bus, run_dir, port, open_browser, replay=False, control=None):
     """Start the dashboard, falling forward to the next free port if needed.
 
     A dashboard left running from an earlier run (or a --replay you forgot to
@@ -52,7 +53,7 @@ def _serve(bus, run_dir, port, open_browser, replay=False):
     for attempt in range(10):
         candidate = port + attempt
         try:
-            server, url = dashboard.start(bus, run_dir, candidate, replay=replay)
+            server, url = dashboard.start(bus, run_dir, candidate, replay=replay, control=control)
         except OSError:
             continue
         if attempt:
@@ -143,6 +144,12 @@ def main():
              "card number / confirm a real e-transfer when prompted.",
     )
     parser.add_argument("--headed", action="store_true", help="Run in a visible Chrome window instead of headless.")
+    parser.add_argument(
+        "--wait", action="store_true",
+        help="Start the tool but not the tests: they begin when you click Play in the dashboard, which is not opened for you "
+             "(use your open tab, or the printed address). The test browser window is visible unless you untick it. "
+             "--headed, --only and --confirm-money still apply to that run.",
+    )
     parser.add_argument("--no-dashboard", action="store_true", help="Don't start or open the live dashboard.")
     parser.add_argument("--port", type=int, default=config.DASHBOARD_PORT, help="Dashboard port (default %(default)s).")
     parser.add_argument("--keep-traces", action="store_true", help="Keep Playwright traces for passing rows too.")
@@ -176,14 +183,40 @@ def main():
 
     only = set(args.only.split(",")) if args.only else None
 
+    if args.wait and args.no_dashboard:
+        parser.error("--wait needs the dashboard (it is where the Start button is); drop --no-dashboard.")
+
+    server = None
+    dashboard_url = None
+    control = None
+    if args.wait:
+        # Show the dashboard now, hold the run until Start is pressed. Nothing on disk yet:
+        # the run's folder is created (and timestamped) at the moment of Start.
+        # The browser window that runs the tests is visible by default (you press Play to watch it);
+        # the tool page itself is NOT opened for you: use the tab you already have (it reconnects
+        # by itself), or open the address below.
+        control = dashboard.RunControl(headed=True, money=args.confirm_money, only=only)
+        server, dashboard_url = _serve(EventBus(), None, args.port, open_browser=False, control=control)
+        if not server:
+            sys.exit(1)
+        print(f"Tool ready at {dashboard_url} — open it (or reload your tab), then click Play. Ctrl-C to quit.", flush=True)
+        try:
+            while not control.start_event.wait(0.5):
+                pass
+        except KeyboardInterrupt:
+            print("\nNo run started.")
+            sys.exit(0)
+        config.HEADLESS = not control.headed
+        print("Starting the run…", flush=True)
+
     run_id = time.strftime("%Y-%m-%d_%H%M%S")
     run_dir = config.run_dir(run_id)
     os.makedirs(run_dir, exist_ok=True)
     bus = EventBus(jsonl_path=os.path.join(run_dir, "events.jsonl"))
 
-    server = None
-    dashboard_url = None
-    if not args.no_dashboard:
+    if control:
+        server.state.run_dir, server.state.bus = run_dir, bus
+    elif not args.no_dashboard:
         server, dashboard_url = _serve(bus, run_dir, args.port, open_browser=True)
 
     try:

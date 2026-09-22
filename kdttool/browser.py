@@ -62,8 +62,93 @@ _STEP_PROBE = """
 })();
 """
 
+# Watches the DOM for modals / dialogs (Bootstrap's `.modal.show`, <dialog open>, SweetAlert ...)
+# and gets a picture of each one, without any help from the app or the scripts.
+#
+# A script is fast: it waits for `.modal.show` and clicks inside the modal a few
+# milliseconds later, and a picture taken "after the event" would show a closed modal.
+# So the modal is held for a moment instead: as soon as it appears it is made
+# unclickable (pointer-events: none), the picture is taken once its fade-in is over,
+# then it is released. Playwright simply retries the click until the modal responds,
+# so a script only ever loses ~0.3s per modal. A hard 6s cap guarantees the modal can
+# never stay stuck. A modal that is opened again later counts as a new sighting.
+#
+# Native browser pop-ups (window.alert / confirm) are not part of the page, so no
+# screenshot can show them; their message is reported as a step instead.
+_MODAL_PROBE = """
+(() => {
+  if (window.__uatModalProbe) return;
+  window.__uatModalProbe = true;
+  const SEL = '.modal.show, dialog[open], .swal2-popup, [role="dialog"][aria-modal="true"]';
+  const open = new Set();
+  const shown = (el) => {
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+  };
+  const title = (el) => {
+    const t = el.querySelector('.modal-title, .swal2-title, h1, h2, h3, h4, h5, [id$=Label]');
+    const raw = (t && t.innerText) || el.getAttribute('aria-label') || el.id || 'dialog';
+    return raw.trim().replace(/\\s+/g, ' ').slice(0, 60);
+  };
+  const frames = (n) => new Promise((res) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : res()); f(); });
+  // fade-in finished and the dialog stopped sliding
+  const settled = async (el) => {
+    const box = el.querySelector('.modal-dialog, .swal2-popup') || el;
+    const t0 = performance.now();
+    let last = '', still = 0;
+    while (performance.now() - t0 < 1500 && still < 6) {
+      const r = box.getBoundingClientRect();
+      const now = [r.top.toFixed(1), r.left.toFixed(1), getComputedStyle(el).opacity].join('|');
+      still = (now === last && parseFloat(getComputedStyle(el).opacity) >= 0.99) ? still + 1 : 0;
+      last = now;
+      await frames(1);
+    }
+  };
+  // Python calls window.__uatModalDone() once the picture is taken.
+  const waiting = new Set();
+  window.__uatModalDone = () => { for (const f of [...waiting]) f(); waiting.clear(); };
+  const announce = async (el) => {
+    el.style.setProperty('pointer-events', 'none', 'important');   // hold: the script can't click it yet
+    try {
+      await settled(el);
+      if (open.has(el)) {
+        console.debug('[uat-modal] ' + title(el));
+        await Promise.race([new Promise((r) => waiting.add(r)), new Promise((r) => setTimeout(r, 6000))]);
+      }
+    } catch (e) { /* never let a picture problem break the page */ }
+    finally { el.style.removeProperty('pointer-events'); }
+  };
+  let queued = false;
+  const check = () => {
+    queued = false;
+    for (const el of [...open]) if (!el.isConnected || !el.matches(SEL) || !shown(el)) open.delete(el);
+    document.querySelectorAll(SEL).forEach((el) => {
+      if (open.has(el) || !shown(el)) return;
+      open.add(el);
+      announce(el);
+    });
+  };
+  const schedule = () => { if (!queued) { queued = true; requestAnimationFrame(check); } };
+  const start = () => {
+    new MutationObserver(schedule).observe(document.documentElement, {
+      subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'open', 'style', 'aria-modal'],
+    });
+    schedule();
+  };
+  if (document.documentElement) start(); else document.addEventListener('DOMContentLoaded', start);
 
-def start_row_session(order, row_dir, bus, headless=None, failure_shots=True):
+  for (const kind of ['alert', 'confirm', 'prompt']) {
+    const orig = window[kind];
+    window[kind] = function (msg) {
+      console.debug('[uat-dialog] ' + kind + ': ' + String(msg == null ? '' : msg).replace(/\\s+/g, ' ').slice(0, 200));
+      return orig.apply(this, arguments);
+    };
+  }
+})();
+"""
+
+
+def start_row_session(order, row_dir, bus, headless=None, failure_shots=True, ctx=None):
     """Open one browser for a catalog row. Called by kdttool/runner.py."""
     global _session
     stop_row_session()
@@ -74,6 +159,9 @@ def start_row_session(order, row_dir, bus, headless=None, failure_shots=True):
         "pw": pw, "browser": browser, "headless": headless,
         "order": order, "row_dir": row_dir, "bus": bus, "traces": 0,
         "failure_shots": failure_shots, "failures": 0,
+        # `ctx` lets the browser take numbered screenshots on its own (modals).
+        # Same rule as failure shots: rows that type secrets are never photographed.
+        "ctx": ctx, "modal_shots": 0,
     }
     return _session
 
@@ -105,6 +193,27 @@ def _next_trace_path():
     return os.path.join(_session["row_dir"], f"trace_{_session['traces']}.zip")
 
 
+def _on_modal(page, viewport, title):
+    """A modal just finished opening (and is being held): narrate it, photograph it when
+    the project asks, then let the page carry on."""
+    _emit("step", text=f"[{viewport}] modal opened '{title}'")
+    try:
+        ctx = _session and _session.get("ctx")
+        if (ctx and config.SCREENSHOT_MODALS and _session.get("failure_shots")
+                and _session["modal_shots"] < config.MAX_MODAL_SHOTS_PER_ROW):
+            _session["modal_shots"] += 1
+            # Just the visible screen, not the whole page: a full-page capture would put
+            # the (fixed-position) modal in the middle of a very tall image.
+            ctx.screenshot(page, f"modal_{title}", full_page=False)
+    except Exception:  # noqa: BLE001 - a missed picture must never fail the row
+        pass
+    finally:
+        try:
+            page.evaluate("() => window.__uatModalDone && window.__uatModalDone()")
+        except Exception:  # noqa: BLE001 - the page may already be navigating or closed
+            pass
+
+
 def _instrument(page, viewport):
     """Turn page/DOM activity into `step` events on the run's event bus."""
     if not (_session and _session.get("bus")):
@@ -116,6 +225,10 @@ def _instrument(page, viewport):
         text = msg.text or ""
         if text.startswith("[uat-step] "):
             _emit("step", text=f"[{viewport}] {text[len('[uat-step] '):]}")
+        elif text.startswith("[uat-modal] "):
+            _on_modal(page, viewport, text[len("[uat-modal] "):])
+        elif text.startswith("[uat-dialog] "):    # native alert()/confirm(): no picture possible, log the message
+            _emit("step", text=f"[{viewport}] browser {text[len('[uat-dialog] '):].replace(': ', ' says: ', 1)}")
 
     def on_navigated(frame):
         if frame != page.main_frame:
@@ -203,6 +316,8 @@ def _page_on(browser, viewport):
     if trace_path:
         context.tracing.start(screenshots=True, snapshots=True, sources=True)
     context.add_init_script(_STEP_PROBE)
+    if config.SCREENSHOT_MODALS and _session and _session.get("bus"):
+        context.add_init_script(_MODAL_PROBE)
     page = context.new_page()
     _instrument(page, viewport)
     try:

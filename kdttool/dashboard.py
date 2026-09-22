@@ -14,6 +14,7 @@ import mimetypes
 import os
 import secrets
 import threading
+from types import SimpleNamespace
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from . import catalog_store, report, scriptgen
@@ -23,19 +24,48 @@ HERE = os.path.dirname(__file__)
 PAGE_PATH = os.path.join(HERE, "dashboard.html")
 
 
+# Changes every time the tool starts. A dashboard tab left open from an earlier start sees the
+# new value, reloads itself, and so picks up the new server's secret token.
+BOOT_ID = secrets.token_urlsafe(8)
+
+
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
 
-def _make_handler(bus, run_dir, port, token, replay):
+class RunControl:
+    """Holds a run back until you press Start in the dashboard (`run.py --wait`).
+
+    run.py blocks on `start_event`; the dashboard's Start button sets it. `headed`
+    starts as the command-line choice and the page's "Show browser" box can change it.
+    """
+
+    def __init__(self, headed=False, money=False, only=None):
+        self.start_event = threading.Event()
+        self.headed = headed
+        self.money = money
+        self.only = sorted(only) if only else []
+
+    @property
+    def waiting(self):
+        return not self.start_event.is_set()
+
+
+def _make_handler(st, port, token, replay, control):
+    """`st` is a small holder with .bus and .run_dir: in wait mode they are swapped in
+    once Start is pressed (a run's folder is created then, not when the tool launched)."""
+
     def run_is_live():
         """True while a run is executing: edits are refused then, so the runner never sees a half-changed catalog."""
         if replay:
             return False
-        events, _ = bus.snapshot()
+        events, _ = st.bus.snapshot()
         kinds = {e["kind"] for e in events}
-        return "run_start" in kinds and "run_end" not in kinds
+        if "run_end" in kinds:
+            return False
+        # Start pressed but the first event has not landed yet: already counts as running.
+        return "run_start" in kinds or bool(control and control.start_event.is_set())
 
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -73,6 +103,15 @@ def _make_handler(bus, run_dir, port, token, replay):
                 self._json(200, {"rows": catalog_store.public_rows(), "live": run_is_live(), "replay": replay})
                 return
 
+            if route == "/api/state":
+                from . import config
+                self._json(200, {
+                    "waiting": bool(control and control.waiting), "headed": bool(control and control.headed),
+                    "money": bool(control and control.money), "only": control.only if control else [],
+                    "project": config.PROJECT_NAME, "base_url": config.BASE_URL, "boot": BOOT_ID,
+                })
+                return
+
             if route == "/api/script":
                 order = (parse_qs(parsed.query).get("order") or [""])[0]
                 row = catalog_store.find_row(order)
@@ -94,16 +133,19 @@ def _make_handler(bus, run_dir, port, token, replay):
 
             if route == "/events":
                 since = int((parse_qs(parsed.query).get("since") or ["0"])[0])
-                events, seq = bus.snapshot(since=since)
-                body = json.dumps({"events": events, "seq": seq}).encode()
+                events, seq = st.bus.snapshot(since=since)
+                body = json.dumps({"events": events, "seq": seq, "boot": BOOT_ID}).encode()
                 self._send(200, body, "application/json")
                 return
 
             if route.startswith("/shot/"):
                 rel = unquote(route[len("/shot/"):])
-                full = os.path.realpath(os.path.join(run_dir, rel))
+                if not st.run_dir:
+                    self._send(404, b"not found", "text/plain")
+                    return
+                full = os.path.realpath(os.path.join(st.run_dir, rel))
                 # Never serve outside the run directory, whatever the path says.
-                if not full.startswith(os.path.realpath(run_dir) + os.sep) or not os.path.isfile(full):
+                if not full.startswith(os.path.realpath(st.run_dir) + os.sep) or not os.path.isfile(full):
                     self._send(404, b"not found", "text/plain")
                     return
                 with open(full, "rb") as f:
@@ -111,7 +153,7 @@ def _make_handler(bus, run_dir, port, token, replay):
                 return
 
             if route == "/export.zip":
-                zip_path = os.path.join(run_dir, "export.zip")
+                zip_path = os.path.join(st.run_dir or "", "export.zip")
                 if not os.path.isfile(zip_path):
                     self._send(404, b"not found", "text/plain")
                     return
@@ -119,14 +161,14 @@ def _make_handler(bus, run_dir, port, token, replay):
                     body = f.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/zip")
-                self.send_header("Content-Disposition", f'attachment; filename="report_{os.path.basename(run_dir)}.zip"')
+                self.send_header("Content-Disposition", f'attachment; filename="report_{os.path.basename(st.run_dir or "run")}.zip"')
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
             if route.startswith("/export/"):
-                root = os.path.realpath(os.path.join(run_dir, "export"))
+                root = os.path.realpath(os.path.join(st.run_dir or "", "export"))
                 full = os.path.realpath(os.path.join(root, unquote(route[len("/export/"):]) or "index.html"))
                 if not full.startswith(root + os.sep) or not os.path.isfile(full):
                     self._send(404, b"not found", "text/plain")
@@ -152,6 +194,15 @@ def _make_handler(bus, run_dir, port, token, replay):
 
             if route == "/export":
                 self._export()
+                return
+
+            if route == "/api/run/start":
+                if not control or not control.waiting:
+                    self._json(409, {"error": "The run has already started."})
+                    return
+                control.headed = bool(body.get("headed"))
+                control.start_event.set()
+                self._json(200, {"ok": True})
                 return
 
             editing = {
@@ -184,7 +235,10 @@ def _make_handler(bus, run_dir, port, token, replay):
                 self._json(500, {"error": str(exc)})
 
         def _export(self):
-            run_id = os.path.basename(run_dir)
+            if not st.run_dir:
+                self._json(409, {"error": "Nothing to export yet: start the run first."})
+                return
+            run_id = os.path.basename(st.run_dir)
             try:
                 built = report.export_folder(run_id)
             except Exception as exc:  # noqa: BLE001
@@ -199,11 +253,15 @@ def _make_handler(bus, run_dir, port, token, replay):
     return Handler
 
 
-def start(bus, run_dir, port, replay=False):
+def start(bus, run_dir, port, replay=False, control=None):
     """Serve the dashboard on a daemon thread. Returns (server, url).
-    `replay` marks a finished run being reopened: catalog edits are always allowed there."""
+    `replay` marks a finished run being reopened: catalog edits are always allowed there.
+    `control` (a RunControl) makes the page show a Start button; the caller then sets
+    `server.state.bus` / `server.state.run_dir` once the run really begins."""
     token = secrets.token_urlsafe(24)
-    server = _ThreadingHTTPServer(("127.0.0.1", port), _make_handler(bus, run_dir, port, token, replay))
+    st = SimpleNamespace(bus=bus, run_dir=run_dir)
+    server = _ThreadingHTTPServer(("127.0.0.1", port), _make_handler(st, port, token, replay, control))
+    server.state = st
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     return server, f"http://127.0.0.1:{port}"

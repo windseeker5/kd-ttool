@@ -54,14 +54,14 @@ class Context:
         if self._bus:
             self._bus.emit("step", order=self.order, text=message)
 
-    def screenshot(self, page, label):
+    def screenshot(self, page, label, full_page=True):
         os.makedirs(self._shot_dir, exist_ok=True)
         # Numbered so a label reused within a row can never overwrite an earlier shot.
         self._shot_count += 1
         safe = re.sub(r"[^\w.-]+", "_", str(label)).strip("_") or "shot"
         filename = f"{self._shot_count:02d}_{safe}.png"
         full_path = os.path.join(self._shot_dir, filename)
-        page.screenshot(path=full_path, full_page=True)
+        page.screenshot(path=full_path, full_page=full_page)
         # Relative to the run dir, which is where report.md now lives too.
         rel_path = os.path.relpath(full_path, config.run_dir(self.run_id))
         self._screenshots.append(rel_path)
@@ -187,7 +187,7 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
         start = time.monotonic()
         try:
             # One browser for the whole row; new_page() makes contexts on it.
-            browser.start_row_session(row["order"], ctx._shot_dir, bus, failure_shots=not row.get("sensitive"))
+            browser.start_row_session(row["order"], ctx._shot_dir, bus, failure_shots=not row.get("sensitive"), ctx=ctx)
             module = _load_script_module(script_path)
             module.run(ctx)
             result["status"] = "pass"

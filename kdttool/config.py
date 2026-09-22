@@ -33,6 +33,14 @@ VIEWPORTS = {
 # Real-money scripts refuse to run unless this flag was passed to run.py.
 CONFIRM_MONEY_FLAG = "--confirm-money"
 
+# When True, every time a modal / dialog opens on a page, the engine takes a screenshot
+# of it automatically (numbered with the row's other screenshots). Off by default; a
+# project switches it on in project.py. Rows marked `sensitive` are never captured.
+SCREENSHOT_MODALS = False
+
+# Safety cap so a loop that opens the same modal hundreds of times can't fill the disk.
+MAX_MODAL_SHOTS_PER_ROW = 40
+
 # Text rendered at the top of the generated CATALOG.md, one string per line.
 CATALOG_INTRO = []
 

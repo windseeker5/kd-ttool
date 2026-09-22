@@ -34,6 +34,7 @@ Common options:
 ```bash
 ./venv/bin/python run.py --project example --only 01,02        # specific catalog rows
 ./venv/bin/python run.py --project example --headed            # watch a real browser window
+./venv/bin/python run.py --project example --wait              # start the tool, then click Play in the dashboard
 ./venv/bin/python run.py --project example --no-dashboard      # no live dashboard
 ./venv/bin/python run.py --project example --replay <run_id>   # reopen a past run's dashboard
 ./venv/bin/python run.py --project example --report <run_id>   # rebuild a past run's report.html
@@ -53,6 +54,23 @@ enlarge), so you can double-click it or email it. It is also written if a run is
 **Export report** (button at the top of the dashboard, or `--export <run_id>`) builds a standalone folder,
 `reports/<run_id>/export/`, plus `export.zip`: `index.html` (with the step log), an `images/` folder of the
 real PNG files, `events.jsonl`, and `traces/` for failed rows. Zip it and send it; it needs nothing else.
+
+## Starting from the dashboard (`--wait`)
+
+`run.py --wait` starts the tool and does **not** start the tests, and does not open a browser tab for you:
+use the dashboard tab you already have open (it reconnects by itself if the tool is restarted) or open the
+address it prints. The page shows the target and the catalog, and lets you edit it; the run begins when you
+click **Play**, and a browser window pops up to do the tests (untick **Show browser** to run it invisibly). `--headed`, `--only` and `--confirm-money` still apply. The run's folder and timestamp
+are created at the moment you press Start, so quitting without starting leaves nothing behind.
+
+## Screenshots of modals
+
+A project can set `SCREENSHOT_MODALS = True` in `project.py`. Every time a modal (Bootstrap `.modal.show`,
+`<dialog>`, SweetAlert) finishes opening, the engine takes a screenshot of it (`modal_<title>`, numbered with
+the row's other screenshots) and logs a "modal opened" step. The modal is held for about a third of a second
+while the picture is taken, so even a script that clicks inside it immediately can't close it first.
+Rows marked `sensitive` are never captured. Native browser pop-ups (`alert()` / `confirm()`) are not part of
+the page, so they can't be photographed; their message is logged as a step instead.
 
 ## Editing tests from the dashboard
 
