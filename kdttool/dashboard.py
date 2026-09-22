@@ -13,6 +13,7 @@ import json
 import mimetypes
 import os
 import secrets
+import sys
 import threading
 from types import SimpleNamespace
 from http.server import HTTPServer, SimpleHTTPRequestHandler
@@ -32,6 +33,13 @@ BOOT_ID = secrets.token_urlsafe(8)
 class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    def handle_error(self, request, client_address):
+        # The browser hung up mid-reply (tab reloaded or closed while a big download or an
+        # export was answering). Nothing is wrong on our side, so don't print a traceback.
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)):
+            return
+        super().handle_error(request, client_address)
 
 
 class RunControl:
