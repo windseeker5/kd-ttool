@@ -64,6 +64,38 @@ def _extract_code(text):
     return code.strip("\n") + "\n"
 
 
+_MONEY_RE = re.compile(r"\$\s?\d[\d,]*(?:\.\d{2})?")
+_COUNT_RE = re.compile(r"\b\d+\s*(?:sessions?|credits?)\b", re.I)
+
+
+def _literal_values(row):
+    """Dollar amounts and session/credit counts mentioned in the catalog entry's own words —
+    the concrete numbers a rebuilt script is expected to actually contain."""
+    text = f"{row.get('description', '')} {row.get('verifies', '')}"
+    return sorted(set(_MONEY_RE.findall(text)) | set(m.strip() for m in _COUNT_RE.findall(text)))
+
+
+def _numeric_core(value):
+    """'$50.00' -> '50.00', '4 sessions' -> '4' — the bare number a script would actually
+    contain (as `50.00` or `"50.00"`, not necessarily with a `$` or the word 'sessions')."""
+    match = re.search(r"\d[\d,]*(?:\.\d+)?", value)
+    return match.group(0).replace(",", "") if match else value
+
+
+def _missing_values(row, code):
+    """Which of the catalog entry's own literal values (see _literal_values) are nowhere in
+    `code`. A script that doesn't contain a number the catalog entry states can't actually be
+    doing what the entry says — that value most likely lives in a shared file this rebuild
+    isn't allowed to touch (it only ever edits the one script file)."""
+    wanted = _literal_values(row)
+    missing = []
+    for value in wanted:
+        core = _numeric_core(value)
+        if core and core not in code:
+            missing.append(value)
+    return missing
+
+
 def _validate(code):
     if "def run(" not in code:
         return "The proposed script has no run(ctx) function."
@@ -122,7 +154,18 @@ def _work(job, row):
             current.splitlines(True), code.splitlines(True),
             fromfile=f"scripts/{row['script']} (now)", tofile=f"scripts/{row['script']} (proposed)", n=3,
         ))
-        job["state"] = "done"
+        missing = _missing_values(row, code)
+        if missing:
+            job["state"] = "mismatch"
+            job["missing"] = missing
+            job["error"] = (
+                "This test's own words mention " + ", ".join(missing) + ", but that doesn't appear "
+                "anywhere in the script — Claude only edits this one file, so if that value actually "
+                "lives in a shared helper, it was left unchanged. The script does NOT yet do what the "
+                "catalog entry says; find and update that value by hand, or restate the entry."
+            )
+        else:
+            job["state"] = "done"
     except subprocess.TimeoutExpired:
         job.update(state="error", error=f"Claude took longer than {TIMEOUT_S}s. Try again, or use the copied prompt in Claude Code.")
     except Exception as exc:  # noqa: BLE001 - the dashboard shows whatever went wrong
@@ -148,12 +191,12 @@ def get_job(job_id):
     job = _jobs.get(job_id)
     if job is None:
         return None
-    return {k: job[k] for k in ("id", "order", "state", "error", "diff", "prompt")}
+    return {k: job.get(k) for k in ("id", "order", "state", "error", "diff", "prompt", "missing")}
 
 
 def approve(job_id):
     job = _jobs.get(job_id)
-    if job is None or job["state"] != "done":
+    if job is None or job["state"] not in ("done", "mismatch"):
         raise catalog_store.CatalogError("Nothing to approve.")
     row = catalog_store.find_row(job["order"])
     if row is None:
@@ -168,12 +211,16 @@ def approve(job_id):
             shutil.copy2(path, backup)
         with open(path, "w", encoding="utf-8") as f:
             f.write(job["proposed"])
-    catalog_store.mark_script_built(job["order"])
+    if job["state"] == "done":
+        # Only a real, confirmed match clears the "out of date" flag — a mismatch approval
+        # (see _missing_values) saves whatever code changed but stays flagged, because the
+        # catalog's own words still aren't provably true of the script.
+        catalog_store.mark_script_built(job["order"])
     job["state"] = "approved"
     return catalog_store.find_row(job["order"])
 
 
 def reject(job_id):
     job = _jobs.get(job_id)
-    if job is not None and job["state"] in ("done", "error"):
+    if job is not None and job["state"] in ("done", "error", "mismatch"):
         job["state"] = "rejected"

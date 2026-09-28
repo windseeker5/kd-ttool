@@ -28,13 +28,18 @@ def load_last_status():
 
 
 def save_last_status(status_by_order, run_timestamp, report_path):
+    """Record each row's latest result. Merged into what is already saved, so running one step
+    (`--only 03`, or Play on a single row) updates that row without wiping every other row's."""
     os.makedirs(config.REPORTS_DIR, exist_ok=True)
+    merged = dict(load_last_status().get("status") or {})
+    merged.update(status_by_order)
     with open(_status_path(), "w") as f:
         json.dump(
-            {"run_timestamp": run_timestamp, "report_path": report_path, "status": status_by_order},
+            {"run_timestamp": run_timestamp, "report_path": report_path, "status": merged},
             f,
             indent=2,
         )
+    return merged
 
 
 def render_catalog_md(status_by_order=None, run_timestamp=None):

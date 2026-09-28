@@ -291,6 +291,39 @@
   #lb-close { position: fixed; top: 14px; right: 18px; width: 36px; height: 36px; color: #fff; }
   #lb-close:hover { background: rgba(255,255,255,.14); color: #fff; }
   #lb-close svg { width: 18px; height: 18px; }
+  /* ---- workbench (`python run.py`): project picker, a Play button on every test ---- */
+  .pick { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 220px; }
+  body.hub .acts { opacity: 1; pointer-events: auto; }
+  body.hub .dur { visibility: hidden; min-width: 96px; }
+  .mini.play { color: var(--accent); }
+  .mini.play:disabled { opacity: .35; cursor: not-allowed; background: transparent; }
+  /* a test waiting for you (real card, e-transfer…): its ▶ becomes a ⏸ you click once you're done */
+  .card.waiting { background: var(--warn-soft); }
+  .mini.resume { color: var(--warn); background: var(--surface); box-shadow: 0 0 0 1px var(--warn); }
+  .mini.resume:hover { color: var(--surface); background: var(--warn); }
+  .chip.wait { color: var(--warn); background: var(--surface); border-color: var(--warn); }
+  .pausebox { background: var(--warn-soft); border-radius: 12px; padding: 16px 18px; display: grid; gap: 10px; }
+  .pausebox .why { font-weight: 600; color: var(--warn); }
+  .pausebox .msg { font-size: 15px; overflow-wrap: anywhere; }
+  .pausebox .row { display: flex; gap: 8px; }
+  /* project tools (e.g. "Simulate Interac payment"): a form on top of an existing script */
+  #tool-btns { display: contents; }
+  .tooldlg { position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.35); display: grid; place-items: center; padding: 16px; }
+  .tooldlg .box { background: var(--surface); color: var(--ink); border-radius: 14px; width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 20px 22px; display: grid; gap: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+  .tooldlg h3 { margin: 0; font-size: 17px; }
+  .tooldlg .intro { margin: 0; color: var(--mute); font-size: 13px; white-space: pre-line; }
+  .tooldlg label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; }
+  .tooldlg label span.help { font-weight: 400; color: var(--mute); font-size: 12px; }
+  .tooldlg input { font: inherit; font-size: 14px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+  .tooldlg .acts2 { display: flex; gap: 8px; justify-content: flex-end; }
+  .tooldlg pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; padding: 10px 12px; border-radius: 8px; max-height: 240px; overflow: auto; }
+  .tooldlg pre.ok { background: var(--pass-soft, #e8f5ec); } .tooldlg pre.bad { background: var(--fail-soft); }
+  .tooldlg .verdict { font-weight: 600; } .tooldlg .verdict.ok { color: var(--pass); } .tooldlg .verdict.bad { color: var(--fail); }
+  .tooldlg .verdict.big { font-size: 18px; }
+  .tooldlg .summary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; background: var(--sunk, #f4f5f7); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+  .tooldlg .sumrow { display: contents; } .tooldlg .sumrow span { color: var(--mute); } .tooldlg .sumrow b { overflow-wrap: anywhere; }
+  .tooldlg .tooldetails summary { cursor: pointer; font-size: 13px; color: var(--mute); }
+  .tooldlg .tooldetails pre { margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -308,12 +341,14 @@
     <symbol id="i-sun" viewBox="0 0 16 16"><circle class="svg" cx="8" cy="8" r="2.8"/><path class="svg" d="M8 1.8v1.4M8 12.8v1.4M1.8 8h1.4M12.8 8h1.4M3.6 3.6l1 1M11.4 11.4l1 1M3.6 12.4l1-1M11.4 4.6l1-1"/></symbol>
     <symbol id="i-moon" viewBox="0 0 16 16"><path class="svg" d="M13 9.6A5.5 5.5 0 0 1 6.4 3 5.5 5.5 0 1 0 13 9.6z"/></symbol>
     <symbol id="i-play" viewBox="0 0 16 16"><path d="M5 3.2v9.6l7.6-4.8z" fill="currentColor" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 16 16"><rect x="4" y="3" width="3" height="10" rx=".8" fill="currentColor"/><rect x="9" y="3" width="3" height="10" rx=".8" fill="currentColor"/></symbol>
     <symbol id="i-x" viewBox="0 0 16 16"><path class="svg" d="M4 4l8 8M12 4l-8 8"/></symbol>
   </defs>
 </svg>
 
 <header class="bar">
   <span class="brand"><img class="logo" alt="" src="data:image/webp;base64,UklGRp4RAABXRUJQVlA4WAoAAAAQAAAARgAAYwAAQUxQSJQDAAABoC3Jtmnb6gvH9rVt27Zt27Zt27Zt49i27eXVW3vYa885Ru/nAyJiAiRuttPau51x66u/jpg89N0TVhCX2W6bHnvLm3+OX1ABGxb73bBxzlh2hT2ueLv/7BqbolmS057fLm8ns+qJr41YSpJorNVqpVRXBcg5L22TsZHZ4vExNZJoVqFardVrxZqqAuTMB1a10Ouu6SSClsqAqgLkoBNaRtv2NxKBazU0VQAsPL9qpL3GEMHr2qAh2Wf/TIwdxxI2AM67tVu4tfsRERUpqT/tEqrNW4RpzjgvH+b0sjFw6RW5EGsOI6xzyZkBso8T9jljj3TbzfYA/tEzTe4lwqVekmbzmR4UYL+eKW4lPCpQOTpZ9z4+APDFTKL9Cn4GdEv0EOFmzmZJOv/nB5VDkmwz3xHOTHI+Emtd1RIvS5B9gwlUocauSdBjUBLb2uTKBLss8tKU5yV4iHCqTZ7u2cwaY900rPU+vUODk+rwzeonGzS5i85A9ttURO53B/D7niJXEVBXCtSuETmuDvUFBfuJ7LqUcK7gLJF1p7kDOFGk/b/uFPxQ1r52sjtw9t7bDSQBdaQK6m3Zzwn4AojXO8pEQqFwXX28i0hvwjunrysil1b8LdhWRLabS/VW2F1E1hhNqLOp64pI9toC4eztliIiLY/sTVccs5U0PrTsiYN2lWbXmkxHeqY03/4PR1ywbQJ5zg/1yVZJLndT//mMTpL0kIoTTt1Aku+yhE4+bplio1leLpKUy4/0wUU7pmn3u5Nxq6SRJ5z82T7VISW6eC+XqsOXPm6X9FuOpYPSQQHkcQfs2zPEVfa49GQJea45Fq/JBzmxbq5fFwm6f9ncx/kwW82ntYck7JpTbClwTqDOvY2xsGegzCumFJy4RiA5rmoJ4LdtQvXsQ1vXS/Czq5Y4e4twHb+jpddbhJMz1A4nbiER96+YYflciblf2c4rrZcJXLC9LBtGrxjnoIqZfzrGOaFu5suWcc6jmVcyca62c7/EvcXOtZGusnNepP2KNFI/IVKX361UD4okhyykCc7fOlbubtj4pn0s6foxDXDmbhJ/1V8YjYXzxeL6/zASS9fnTciG/zIKize1FKPr/8pQCnDxlS3E7KofKsMAnHJaVgx3uWsRg5B/7Sy2c0f0BlOR8x5YXsyvcPNokEnIJZ/vkRWPa1zy48wamy2Nen7vtuK1w7YXvfbP1IULJv///IlrZCU6VlA4IOQNAADQNACdASpHAGQAPikQhUIhoQwdV0oMAUJYgCDtFr0Gs9/yP9Z3RWlPK9fP/xPqe/QHsC84/zC/s96xP+g/Zn3Z/4L/AewB/Zf8t1l/oEfs56bn7o/CZ/Zv+P+2XtX///OJf5X9Ffj7/SPqA9X/Bn4Q9nvVzx19DOZf7E/f/7X+1XrL3s+/j+09QL8R/lX9+/K/+08Mdo39y9AL1r+e/6D+6/uL/dPRb/oPRP6j/5b3AP5t/Vf8h+ZXrXeCZ4P7AH8q/qf+6/uH46fS5/L/877wPa5+e/37/qf4/4Bv5H/Rv9B/fP3k/xv///933meyL9vvZC/WpVElSwnB7vJEZKPvJBPtzMnnRhoY/7mkdeQT80qYzrw3ZjP3pW2/yWTnoP9TzjH0NDUqoEv3Uxexdr3/TzeaOk4Sj+DV/vx6+yxOX/pICvjmuHW6xyIgDoV6WGGYQsojgE19zGR7seQPkLkO8rdYUHzMcCYxfZyxyv/VyjvF7ULc/XfR2fx1c5/BsEn1/OVmYx/teLg0O/8wRb+eNCas8lvxeI9o+tvvttVZtdxRr7fvsm1zY/qa88UKgAD++5GNcBiej/NE7sX28baMTuoHxmh+YkfTcwuongzpmsoOBVpYwslIrAD3nkuRiebea2X0/XTXzT+nNUMu7BzLWSryZhmRxdM7Kyxe60YteIOP4tYXlCbJPRCQIekzPhSDrb4gV7bPStL7hdX3z4DCzFPu9FgCSO+ODCLnK3xNEOsextJjs8ZdJyukUzyAk9ZBb+lzUShi05TFg0awW8sPNmqPN4KxJpR4ljS9UgpIz18dpUMbnSUo1qKAg3kOA3VlKQPKGrUG9UiT78txlfNZjI15c52kriRW+z/ZYbjKr3KOs4QqWBxMRaVMBGnXAQmYFRx1ZWLDAbP9TOHYVRNBcmAC4AF0cexmuyI/QRpP89ysyWtwaozr0GwjJs/nao4mr8XFhL4mUnU/tUWlQ3Ze3lYN9KAzRtXO43FRJPiR8EDKPfinyOFC4oyH/Z20tbEUGSJ+xKa74FiZonj80JjvErEjPAqZhv/7l+OwjkQKhv7Q/7tDHX3kHRWs99vUKHtwQUzdVdSRJEOq89Ny8TvC3jFn9fftz0VW/8aycUtaAzoz7qWScUIdbkryvBGQCYuZ68wVxOeZwZ8gvcIqbWqt3Uzb7aIlnAEf0qmwaSFs+QkPzAN9gh2Ci7J+lZCGj4/c/AD2CksTyumn6hQHXAdwECir5JVdRE5Ktt5rj2PVYPAWSwCkxmYaxJ3DWGIk0ORyJUS8+iH17BTtCklcPc83d3dMbASnz+wwSv24KV43vX+Kl5kgfA5HVGKo60sqKdUk92HknByR+C0plp8ZB4fDZbGBhFaiRAjxDPGepxCL+85K85yb4Af+luHKOX+jHIRARk74mmJJ4hvB5QaIEF0Idv7vVgUQBb6aK4TwuCDLlwiDTURUxsBGAchZi1s9EIcE4ZU9FEO/2TIZd0VN2z+nMQP9P7hkwmCkIAWrgMO/b1vAhiW5aw74PPiomJZBJ5g7PLlPRZFitk+nzhjGqzHVnz91vnTZkjKY3tatvb6bX+kmtS+9zoUz7zOOVCTKTzMRgbJInI21uNCaSjO+0JdfhnA5PzB21fPf2UHv2BnqA8G1e2SxXM6/utxI2Z60lh6nW9qcVhi7GQJfu8z9jUiY0VwWBlcXcdf4/rKmfgygAwQvSC6YVF6jEmzOihNek4ddCwDyC4xa+Qr5tAHH5lSxr1Gq4NZeAwIx7OUYlgFexT6hSVxYp1bHkOgoIVPCg8DBMZdIxVGLG8+x5gEq0FMrT95tUh+THKihkMPdH6vFiZJCLI4RK8pk1WjIAdZZmvo96xYToIslACMWOvWa8sC48ul3P7HQBXNbS3M6A9/lug25odmJXhc4fOAdlfsvohakOOxMqKMJxC8rTVHiKLfVMfqv9XJIrWCpkKdV7CPWCM8sS+Q/rixePhPIGhC0OtJ4ERIt2skDsZyEYvg5+asY5kZvHe3fvJxOktBYIjnKaQVErCus8j/A8uSkWtJjEO/RSkWfBXE+n4tZ1WUrJT9paQjZITkaMc+t5bK5U9R6/ZtYe9JnPL+WzQ1s8igovnZCX/8XO7gmUlm0TTV2JTosTrQxq0kHu6phwYbEv0KjDG+7a+TrvEstNzVoF4eIZIR0DdHit6N+d7l0efPt2Kp6JMXMDjNMO6xFwwiJm8RAUNksPSX8DnrIGLtAh/kjwW+b3kl863Ux7cMWSTqjpRukk/eQEZEEQNHvxiERVbRFjP0yHgDDXJvwIdUwjxhVS+xsbZPVnUSjAing77af+u5gKVFrsyLNT4XM+4uVYHwuelqJIeMghLA5ABNOHWOZFekvbj2rGpVmGbD6bxTgDgfHp49oWV1Dt9Wao6XoCE+lfYuz9XJtlPIyfcN6/xyIN+oyVLsh0SzBoxx/MUc4/Y0LTx4z2lAumk5IIvaoQuDIz02VcRbO+on/pq30AqMCL9G6KK8ukX9obBIm+IYa/bnr9pr1oVP8qTtlXa+tsleehd6swzN9by7nL55ecwz0Xy3aNaXSj/zRdQWDtMQPMjErDJa0+Kjb8HbyJSyD++/Yo/fquFUDAr2vaaH8YvXdZqBpaxOcv+uxfopOhGwX2BWa8t86DzKij/9Q5yduux83ORcKczLX5iQpYJCN2C7mriIVNBPydcdXNBm8je0eTDlmU+euz0sL9U8E8O63Gxz3/KSQcjzxCH44J/6+dLFbC/JtyM69aAaX13QAYaK0vjma0Bn1mQNotJ+LZTWH77itfiYZZtWzutXuvMfKpofbTsrhWSFqtQfREey8lIi6kOK+9pk6cCEMoOjHYvwiBG2h1Ltd35BSZ7vh4DrI7Kbv3V3NkJ7/GO+8ZxQ7J+ti2/De+FBT32QTirjcuxYe/wmgiDl+2+f08mLLoTerww1hVcRvu/sI/9lUxgxwHRZo2F5GwrKwjnj6meUZESQyB0X+GgWrZ3gJsZ8auymReeXMBAeaPRKANnngFc28q/HaePHcwNR+EqzepRBMldiLtAXvd/IypoE+waKweYhaP9WosyK5N8vIl4+I4C20EaSz2EF4ZLivw83/n+TEL8cWY/QOIfDyZefpaU9OoLbvPfcLe+522ZfaqqB5QaFG0AwIoibhq8Hg694Oy+nrB4RA41xD3oycEp5bnGxZ4OhUzmQAcu3geOi7Zm4WM9P5/NERjann32dhJC0qshsvY8Lqv2rA76plz1zcr42LUhFokKDLaeJa/57QpeP1JGLuHJR5WQhKiv2OkvAWhBGclYUa7AEExCNNRPdSIWedL1WAxekm/59aq6NAvw5Dk88r+rPoyRJlakbVtXGWud1O2z17mFDXYliabzJA1W37CfhHP3zy8LAW//hH1fNeuWF+Hnb2Bmhozh/V5kRZ4l9ULL9aA32UjFq4wr/G/x2hRlcpjH/t89///8NlEwWdlofDct26HvM0UAp98RVblnQyzSg4f62PF/p+BxlGY54SwPx6/kwKPIFZJoypv4Y6WDicIffpYvz7uc5Ez019z37PPH/jrG0l5jfAdQI9hzU2x8UYS91HBKH7xTHcLv+RZZDKBOYdejK1EslUXFZ7JxwNVdI7w9yw/DJBfht/ihE79So4AbpK111eX9h9ObMNp9MGklM4jJewNwksozkRebhqlJRa0P5o2Yda0Nq3qdrNV8+hCo74dXKKRQgp6Zd9qb/aMnbE4lSLS3gf2L38rTCXtUGCR2Uk3ub+0ezfYVNVWJjJ7BkN/XLCPTormyV6kGVVX5B12mx010hbNH62aPVi5Y98IFP4uf2I3dzVgmdxmLQihYZwnG5pdlp0xcs/r0agRc+DtHZlzCXvlMpn4IFL+rT84fcgS740x27s52MdcW3ySH1aOXhtJgR6I9zvXk4H9/m2jka6Atuhikt/hpRCesiUQ2KqYRECQ/s/BbAbwTSdl/txWiQ2uwxXRy2/mwTUcw0wCVXZnUZqJ/mCXP4idbwLsRasQ64Sr7JT8eo3Y59Om1mux3OmncdPhYcl+LcyvdcKf8kyfBAG/Iq09RimePU0GX9T6kN68dnx+S5J/4eUZOAxPNAR6+RwH/lF/APyFYsa6NxzGR3e5anjIds4OTFANEpPrt5mRVB9lp1lbvuaFJYmSmUcL8T2VJ1g3YurvLMdcnwNliY1VrRHCtHx9XwM039vJzMTf5LWSXhpw9UFHBNfKVPtO/oiARNNVe8uAcR8xEUB55VKdpPjO4Y9kFg0FHNrjwKkJih6Zz4wn3H59M7eqKtt7ZEUwn9h54WOnj31kliIA6RIzUORYbHA3iSK5MnoIPMPhojn5PnT87MesoZpZ0jyB8TbztJl61jCty8QYzrTUGQUakCRD01dAiLmFX++IZYcEi5sLWSLnFCIPDT57BtJl+8NL1TElbwMgUQ/e/vGF1ykOa4Z4cikV0PAb/E7mZDRHtQgrOMMQwAhCZliNL96KSrXx2t/dDP5SBcujsjykFi6DkvT8XBxR2qkpY1PMUPJdvebrS0gdrbCqnuu4jw9c7XBSnBKnBzKt3tdRBq9FITRRnruWGPBbIFDSwm+APv/dEosRO44SPaIiUVdNfZ3Fhn+FvrN0SjWWCpMGOOVwvMS+ZCXOU4SLK5FGcTbgsmRVKLKrrZidbeYbvGzTsMwoifa88YkPd/G1YM3plgKPde/PUi76FnD3gSZZchaI6mqQpgwh+aciVYx///907QAAAAA">TTOOL</span>
+  <select class="pick" id="project-pick" aria-label="Project" hidden></select>
   <span class="target" id="target">connecting…</span>
   <span class="sp"></span>
   <span class="elapsed" id="elapsed" hidden><span id="elapsed-lbl">Elapsed</span><b id="elapsed-val">0:00</b></span>
@@ -321,6 +356,9 @@
   <span id="export-msg"></span>
   <label class="opt" id="opt-wrap" hidden><input type="checkbox" id="opt-headed"> Show browser</label>
   <button class="btn primary" id="start-btn" type="button" hidden><svg aria-hidden="true"><use href="#i-play"/></svg>Play</button>
+  <span id="tool-btns"></span>
+  <button class="btn danger" id="stop-btn" type="button" hidden>Stop test</button>
+  <button class="btn" id="fresh-btn" type="button" hidden title="Forget this project's saved results and saved ids, to replay every test from step 01">Start fresh</button>
   <button class="btn" id="export-btn" type="button">Export report</button>
   <button class="mini" id="theme-btn" type="button"></button>
   <div class="prog" aria-hidden="true"><i class="p"></i><i class="f"></i><i class="s"></i><i class="r"></i></div>
@@ -424,6 +462,7 @@ async function loadCatalog() {
     const d = await api("/api/catalog");
     cat.clear(); catOrder = [];
     for (const r of d.rows) { cat.set(r.order, r); catOrder.push(r.order); }
+    lastStatus = d.last_status || {};
     renderRows();
     if (selected) renderDetail();
   } catch (err) { /* dashboard opened without a server: keep the run-only view */ }
@@ -437,7 +476,8 @@ function listOrder() {
 function statusOf(o) {
   const r = rows.get(o);
   if (r) return r.status;
-  return cat.get(o)?.manual ? "manual" : "pending";
+  if (cat.get(o)?.manual) return "manual";
+  return (hub.on && lastStatus[o]) || "pending";   // workbench: the result from the last time it ran
 }
 
 function gapEl(after) {
@@ -472,14 +512,16 @@ function renderRows() {
     const summary = c.summary || r.summary || "";
     const dur = r.duration != null && status !== "skipped" ? r.duration.toFixed(1) + "s" : "";
     const state = c.script_state;
+    const waiting = hub.on && status === "running" && r.pause != null;
     const tags = [
       (c.money || r.money) && h("span", { class: "chip", title: "Moves real money, so it only runs on purpose" }, "Real money"),
       state === "draft" && h("span", { class: "chip draft" }, "No script yet"),
       state === "stale" && h("span", { class: "chip stale" }, "Script out of date"),
       status === "manual" && h("span", { class: "chip" }, "By hand"),
+      waiting && h("span", { class: "chip wait" }, "Waiting for you"),
     ];
     const card = h("div", {
-      class: "card " + status + (drawer.open && drawer.order === o && drawer.mode === "edit" ? " editing" : ""),
+      class: "card " + status + (waiting ? " waiting" : "") + (drawer.open && drawer.order === o && drawer.mode === "edit" ? " editing" : ""),
       "aria-current": String(o === selected), "data-order": o,
     },
       h("button", { class: "card-main", type: "button", onclick: () => { pinned = true; select(o); } },
@@ -489,6 +531,15 @@ function renderRows() {
           h("span", { class: "sum" }, summary)),
         h("span", { class: "dur" }, dur)),
       h("div", { class: "acts" },
+        waiting ? h("button", {
+          class: "mini resume", type: "button", html: icon("pause"),
+          title: "Waiting for you: " + r.pause + " Click when you're done.",
+          "aria-label": "Resume " + title + " — click once you're done", onclick: (ev) => resumeStep(ev.currentTarget),
+        }) : hub.on && !c.manual ? h("button", {
+          class: "mini play", type: "button", html: icon("play"), disabled: hub.busy,
+          title: hub.busy ? "A test is running" : "Play this test in a new browser window",
+          "aria-label": "Play " + title, onclick: () => playStep(o),
+        }) : null,
         iconBtn(o, "catalog", "edit", "Edit catalog entry: what this test should do"),
         c.manual ? null : iconBtn(o, "script", "code", "Script: see the code")));
     host.appendChild(card);
@@ -556,19 +607,29 @@ function renderDetail() {
   const r = rows.get(selected);
   const c = cat.get(selected);
   const log = $("log");
-  if (!r && !c) { log.innerHTML = '<p class="empty">Waiting for the run to start…</p>'; $("d-status").hidden = true; return; }
+  if (!r && !c) {
+    $("d-area").textContent = hub.on ? (hub.project || "No project open") : "—";
+    $("d-meta").textContent = "";
+    log.innerHTML = hub.on
+      ? '<p class="empty">' + (hub.project ? "Pick a test, then press its Play button." : "Pick a project at the top to see its tests.") + "</p>"
+      : '<p class="empty">Waiting for the run to start…</p>';
+    $("d-status").hidden = true; return;
+  }
   const info = Object.assign({}, r || {}, c || {});
 
   $("d-area").textContent = info.title || info.area;
   $("d-meta").replaceChildren(
     [info.area, info.viewport].filter(Boolean).join(" · ") + " · ",
     h("code", {}, info.script ? `scripts/${info.script}` : "done by hand"));
-  setStatusPill(r ? r.status : (c && c.manual ? "manual" : "pending"), r);
+  setStatusPill(r ? r.status : statusOf(selected), r);
   if (!r) {
     log.innerHTML = "";
     log.appendChild(h("p", { class: "empty" }, c.manual
       ? "Manual test: nobody runs a script for this one."
-      : "This test has not run in this session yet."));
+      : hub.on
+        ? (lastStatus[selected] ? `Last time it ran: ${lastStatus[selected]}. ` : "Not run yet. ")
+          + "Press ▶ next to it in the list to run it in a new browser window."
+        : "This test has not run in this session yet."));
     return;
   }
 
@@ -579,13 +640,26 @@ function renderDetail() {
 
   const frag = document.createDocumentFragment();
 
+  // 0. waiting for a person (real card, e-transfer…): say what to do, and a Continue button
+  if (r.pause != null && r.status === "running") {
+    frag.appendChild(h("div", { class: "pausebox" },
+      h("div", { class: "why" }, "Waiting for you"),
+      h("div", { class: "msg" }, r.pause),
+      h("div", {}, r.pauseAuto
+        ? "No time limit. When you're done, click ⏸ next to the test (or the button below). It also continues by itself if it sees you're done."
+        : "No time limit. Click ⏸ next to the test (or the button below) once you're done."),
+      h("div", { class: "row" },
+        h("button", { class: "btn primary", type: "button", onclick: (ev) => resumeStep(ev.currentTarget) }, "I'm done — resume"),
+        h("button", { class: "btn danger", type: "button", onclick: () => stopStep() }, "Stop test"))));
+  }
+
   // 1. if it failed: why, first
   if (r.status === "fail" && r.error) {
     const alert = h("div", { class: "alert" },
       h("div", { class: "why" }, "Why it failed"),
       h("div", { class: "reason" }, failReason(r.error)));
     if (r.traceDir) {
-      const cmd = `npx playwright show-trace reports/${window.__runId}/${r.traceDir}/trace_1.zip`;
+      const cmd = `npx playwright show-trace reports/${r.runId || window.__runId}/${r.traceDir}/trace_1.zip`;
       alert.append(h("div", { class: "cmd" }, h("code", { title: cmd }, cmd), copyButton(cmd)));
     }
     alert.append(h("details", { class: "errfull" }, h("summary", {}, "Full error"), h("pre", {}, r.error.trim())));
@@ -636,7 +710,8 @@ function renderDetail() {
   log.appendChild(frag);
   // Opening a test starts at the top (why it failed, first screenshots);
   // a test that is still running keeps following the newest line.
-  if (switched) log.scrollTop = r.status === "running" ? log.scrollHeight : 0;
+  if (r.pause != null && r.status === "running") log.scrollTop = 0;   // "Waiting for you" is at the top
+  else if (switched) log.scrollTop = r.status === "running" ? log.scrollHeight : 0;
   else if (stick && r.status === "running") log.scrollTop = log.scrollHeight;
   lastShown = selected;
 }
@@ -739,6 +814,33 @@ function recount() {
 }
 
 function apply(e) {
+  if (e.kind === "project_open") {
+    // Workbench switched project: forget the old project's tests, load the new catalog.
+    order = []; rows.clear(); selected = null; pinned = false; finished = false;
+    runStartTs = runEndTs = null; tickElapsed();
+    $("tally").replaceChildren();
+    document.querySelectorAll(".prog i").forEach((bar) => { bar.style.transform = ""; });
+    hub.project = e.project;
+    $("add-end").hidden = false;
+    $("target").textContent = e.base_url;
+    if ($("project-pick").value !== e.project) $("project-pick").value = e.project;
+    loadCatalog().then(() => { renderRows(); renderDetail(); recount(); });
+    api("/api/state").then((st) => paintTools(st.tools)).catch(() => {});
+    return;
+  }
+  if (e.kind === "step_end") { hub.busy = false; hub.running = null; paintHub(); return; }
+  if (hub.on && e.kind === "run_start") {
+    // One played test: keep every other test's result, restart just this one.
+    window.__runId = e.run_id;
+    for (const r of e.rows) Object.assign(ensureRow(r.order, {
+      area: r.area, script: r.script, money: r.money,
+      title: r.title, summary: r.summary, description: r.description, verifies: r.verifies, viewport: r.viewport,
+    }), { status: "pending", entries: [], error: null, duration: null, pause: null, runId: e.run_id });
+    runStartTs = e.ts; runEndTs = null; tickElapsed();
+    hub.busy = true; paintHub();
+    return;
+  }
+  if (hub.on && e.kind === "run_end") { runEndTs = e.ts; tickElapsed(); recount(); return; }
   if (e.kind === "run_start") {
     window.__runId = e.run_id;
     order = []; rows.clear();
@@ -768,11 +870,18 @@ function apply(e) {
     if (!pinned) select(e.order); else renderRows();
     return;
   }
+  if (e.kind === "pause" || e.kind === "resume") {
+    r.pause = e.kind === "pause" ? (e.text || "") : null;
+    r.pauseAuto = e.kind === "pause" && !!e.auto;
+    if (!pinned || selected === e.order) select(e.order);
+    return;
+  }
   if (e.kind === "row_end") {
     Object.assign(r, {
       status: e.status, duration: e.duration_s, error: e.error,
-      traceDir: e.trace_dir, reason: e.reason,
+      traceDir: e.trace_dir, reason: e.reason, pause: null, runId: e.run_id || r.runId,
     });
+    if (hub.on) lastStatus[e.order] = e.status;
     recount(); renderRows();
     if (selected === e.order) renderDetail();
     return;
@@ -1042,7 +1151,7 @@ async function showJob(id) {
       h("button", { class: "btn ghost", type: "button", onclick: () => { api("/api/script/reject", { job: id }).catch(() => {}); delete pendingJob[order]; renderScriptTab(); } }, "Back to the script")));
     return;
   }
-  // done: show the diff
+  // done or mismatch: show the diff
   const lines = [];
   for (const raw of (job.diff || "").split("\n")) {
     if (raw.startsWith("---") || raw.startsWith("+++")) continue;
@@ -1052,14 +1161,26 @@ async function showJob(id) {
     else lines.push(["", raw.slice(1)]);
   }
   const changed = lines.some(([, , cls]) => cls === "add" || cls === "del");
+  const mismatch = job.state === "mismatch";
+  if (mismatch) {
+    body.appendChild(h("div", {
+      class: "msg err",
+      style: "padding:9px 14px;border-radius:8px;background:var(--fail-soft);color:var(--fail);font-size:13px;margin-bottom:10px",
+    }, job.error || "This test's own words don't match the script."));
+  }
   body.appendChild(h("div", { class: "codebar" },
-    h("b", {}, changed ? "Proposed change to the script" : "The script already does what your words say"),
+    h("b", {}, mismatch
+      ? "Script does NOT match the catalog entry"
+      : (changed ? "Proposed change to the script" : "The script already does what your words say")),
     h("span", { class: "spacer" }),
-    h("button", { class: "btn good", type: "button", onclick: () => decideJob(id, true) }, changed ? "Approve and replace the script" : "Mark the script as up to date"),
-    changed && h("button", { class: "btn", type: "button", onclick: () => decideJob(id, false) }, "Reject: keep the current script")));
+    h("button", { class: mismatch ? "btn" : "btn good", type: "button", onclick: () => decideJob(id, true) },
+      mismatch ? "Save anyway (stays flagged out of date)" : (changed ? "Approve and replace the script" : "Mark the script as up to date")),
+    (changed || mismatch) && h("button", { class: "btn", type: "button", onclick: () => decideJob(id, false) }, "Reject: keep the current script")));
   if (changed) {
     body.appendChild(codeBox(lines));
-    body.appendChild(h("p", { class: "hint-line" }, "Nothing has been saved yet. The old script is backed up in .history/ when you approve."));
+    body.appendChild(h("p", { class: "hint-line" }, mismatch
+      ? "Nothing has been saved yet. Approving still won't clear the 'out of date' flag — the catalog's numbers aren't provably in this script."
+      : "Nothing has been saved yet. The old script is backed up in .history/ when you approve."));
   }
 }
 
@@ -1119,13 +1240,161 @@ window.addEventListener("beforeunload", (e) => { if (drawer.open && drawer.dirty
   });
 })();
 
+/* ---- workbench (`python run.py`): pick a project, play one test at a time ---- */
+const hub = { on: false, busy: false, running: null, project: null };
+let lastStatus = {};          // workbench: each test's result from the last time it ran
+
+function paintHub() {
+  $("stop-btn").hidden = !(hub.on && hub.busy);
+  $("fresh-btn").hidden = !(hub.on && hub.project);
+  $("fresh-btn").disabled = hub.busy;
+  $("project-pick").disabled = hub.busy;
+  $("add-end").hidden = hub.on && !hub.project;
+  renderRows();
+  renderDetail();
+}
+
+async function playStep(o) {
+  const c = cat.get(o) || {};
+  let money = false;
+  if (c.money) {
+    if (!window.confirm(`"${c.title || o}" moves REAL money. Run it now? You will be asked to pay by hand in the browser.`)) return;
+    money = true;
+  }
+  pinned = true; selected = o;
+  try {
+    hub.busy = true; paintHub();
+    await api("/api/step/play", { order: o, money });
+  } catch (err) {
+    hub.busy = false; paintHub();
+    $("tally").replaceChildren(h("span", { class: "f" }, err.message));
+  }
+}
+
+async function resumeStep(btn) {
+  if (btn) btn.disabled = true;
+  try { await api("/api/step/continue", {}); }
+  catch (err) { $("tally").replaceChildren(h("span", { class: "f" }, err.message)); }
+  // If it wasn't really done, the test notes it and keeps waiting: the button must work again.
+  setTimeout(() => { if (btn && btn.isConnected) btn.disabled = false; }, 1500);
+}
+
+async function stopStep() {
+  try { await api("/api/step/stop", {}); }
+  catch (err) { $("tally").replaceChildren(h("span", { class: "f" }, err.message)); }
+}
+
+$("stop-btn").onclick = () => stopStep();
+$("fresh-btn").onclick = async () => {
+  if (!window.confirm(`Start "${hub.project}" fresh?\n\nThe tool forgets every test's last result and the ids the tests saved for each other, so you can replay from step 01.\n\nPast reports stay on disk. Nothing on the website is changed: clean the site's own data yourself first if the tests should recreate everything.`)) return;
+  try { await api("/api/project/reset", {}); }
+  catch (err) { $("tally").replaceChildren(h("span", { class: "f" }, err.message)); }
+};
+$("project-pick").onchange = async (ev) => {
+  const name = ev.target.value;
+  if (!name) return;
+  try { await api("/api/project/open", { name }); }
+  catch (err) { $("tally").replaceChildren(h("span", { class: "f" }, err.message)); ev.target.value = hub.project || ""; }
+};
+
+function paintTools(tools) {
+  const host = $("tool-btns");
+  host.replaceChildren(...(tools || []).map((t) =>
+    h("button", { class: "btn", type: "button", onclick: () => openTool(t) }, t.title)));
+}
+
+function openTool(tool, keep) {
+  const inputs = {};
+  const close = () => { dlg.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const err = h("div", { class: "verdict bad", hidden: true });
+  const details = h("details", { class: "tooldetails", hidden: true }, h("summary", {}, "Details"), h("pre", { class: "bad" }));
+  const send = h("button", { class: "btn primary", type: "submit" }, "Send");
+  const box = h("div", { class: "box" });
+
+  // After a success the form goes away: show what was sent, then Done / Send another.
+  const showSuccess = (values, output) => {
+    const f = Object.fromEntries(tool.fields.map((x) => [x.name, x]));
+    const line = (label, value) => value ? h("div", { class: "sumrow" }, h("span", {}, label), h("b", {}, value)) : null;
+    const amount = values.amount ? `$${Number(values.amount).toFixed(2)}` : "";
+    box.replaceChildren(
+      h("h3", {}, tool.title),
+      h("div", { class: "verdict ok big" }, "✅ Sent"),
+      h("div", { class: "summary" },
+        line("Amount", amount),
+        line(f.name ? f.name.label : "From", values.name),
+        line(f.to ? f.to.label : "To", values.to),
+        line(f.message ? f.message.label.replace(" (optional)", "") : "Message", values.message)),
+      tool.next ? h("p", { class: "intro" }, tool.next) : null,
+      h("details", { class: "tooldetails" }, h("summary", {}, "Details"), h("pre", { class: "ok" }, output)),
+      h("div", { class: "acts2" },
+        h("button", { class: "btn", type: "button", onclick: () => { close(); openTool(tool, Object.assign({}, values, { amount: "" })); } }, "Send another"),
+        h("button", { class: "btn primary", type: "button", onclick: close }, "Done")));
+    box.querySelector(".btn.primary").focus();
+  };
+
+  const form = h("form", { onsubmit: async (ev) => {
+      ev.preventDefault();
+      const values = {};
+      for (const [k, el] of Object.entries(inputs)) values[k] = el.value;
+      send.disabled = true; send.textContent = "Sending…"; err.hidden = true; details.hidden = true;
+      try {
+        const res = await api("/api/tool/run", { id: tool.id, values });
+        if (res.ok) { showSuccess(values, res.output || ""); return; }
+        err.hidden = false; err.textContent = "❌ Not sent — see the details below.";
+        details.hidden = false; details.open = true; details.querySelector("pre").textContent = res.output || "No output.";
+      } catch (e) {
+        err.hidden = false; err.textContent = "❌ " + e.message;
+      }
+      send.disabled = false; send.textContent = "Try again";
+    } },
+    h("h3", {}, tool.title),
+    tool.intro ? h("p", { class: "intro" }, tool.intro) : null,
+    ...tool.fields.map((f) => {
+      const value = keep && keep[f.name] != null ? keep[f.name] : (f.default || "");
+      const input = h("input", { type: f.type || "text", name: f.name, value,
+                                 placeholder: f.placeholder || "", required: !!f.required,
+                                 step: f.type === "number" ? "0.01" : null, min: f.type === "number" ? "0" : null });
+      inputs[f.name] = input;
+      return h("label", {}, f.label + (f.required ? " *" : ""), input, f.help ? h("span", { class: "help" }, f.help) : null);
+    }),
+    err, details,
+    h("div", { class: "acts2" }, h("button", { class: "btn", type: "button", onclick: close }, "Close"), send));
+  box.appendChild(form);
+  form.style.display = "grid"; form.style.gap = "12px";
+  const dlg = h("div", { class: "tooldlg", role: "dialog", "aria-modal": "true", "aria-label": tool.title,
+                          onclick: (ev) => { if (ev.target === dlg) close(); } }, box);
+  document.body.appendChild(dlg);
+  document.addEventListener("keydown", onKey);
+  const first = keep ? inputs.amount || form.querySelector("input") : form.querySelector("input");
+  first?.focus();
+}
+
+function setHub(st) {
+  hub.on = true; hub.busy = !!st.busy; hub.running = st.running; hub.project = st.project;
+  document.body.classList.add("hub");
+  const pick = $("project-pick");
+  pick.hidden = false;
+  pick.replaceChildren(
+    h("option", { value: "" }, st.project ? "Switch project…" : "Choose a project…"),
+    ...st.projects.map((p) => h("option", { value: p }, p)));
+  pick.value = st.project || "";
+  $("target").textContent = st.project ? st.base_url : "No project open";
+  paintTools(st.tools);
+  $("start-btn").hidden = true; $("opt-wrap").hidden = true;
+  paintHub();
+}
+
 async function loadState() {
-  try { const st = await api("/api/state"); if (st.waiting) setWaiting(true, st); }
+  try {
+    const st = await api("/api/state");
+    if (st.hub) setHub(st);
+    else if (st.waiting) setWaiting(true, st);
+  }
   catch (err) { /* no server: run-only view */ }
 }
-loadCatalog().then(loadState);
-
-poll();
+// Poll only once we know whether this is the workbench: its events are applied differently.
+loadCatalog().then(loadState).then(poll);
 
 $("export-btn").addEventListener("click", async () => {
   const btn = $("export-btn"), msg = $("export-msg");

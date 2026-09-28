@@ -6,7 +6,7 @@ import re
 import time
 import traceback
 
-from . import browser, config
+from . import browser, config, human
 
 
 def row_title(row):
@@ -55,6 +55,30 @@ class Context:
             self._bus.emit("step", order=self.order, text=message)
 
     def screenshot(self, page, label, full_page=True):
+        """Save a numbered screenshot. With config.SCREENSHOT_VIEWPORTS set, one per viewport
+        (label_desktop, label_mobile, ...): the page is resized for each and restored after."""
+        wanted = [v for v in (config.SCREENSHOT_VIEWPORTS or ()) if v in config.VIEWPORTS]
+        original = page.viewport_size
+        if len(wanted) < 2 or not original:
+            return self._shoot(page, label, full_page)
+        current = next((name for name, size in config.VIEWPORTS.items()
+                        if size["width"] == original["width"] and size["height"] == original["height"]), None)
+        # The page's own size first (no resize), then the others.
+        order = ([current] if current in wanted else []) + [v for v in wanted if v != current]
+        paths = []
+        try:
+            for name in order:
+                if name != current:
+                    page.set_viewport_size(config.VIEWPORTS[name])
+                    page.wait_for_timeout(400)  # let the responsive layout settle
+                paths.append(self._shoot(page, f"{label}_{name}", full_page))
+        finally:
+            if page.viewport_size != original:
+                page.set_viewport_size(original)
+                page.wait_for_timeout(200)
+        return paths[0]
+
+    def _shoot(self, page, label, full_page):
         os.makedirs(self._shot_dir, exist_ok=True)
         # Numbered so a label reused within a row can never overwrite an earlier shot.
         self._shot_count += 1
@@ -188,6 +212,7 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
         try:
             # One browser for the whole row; new_page() makes contexts on it.
             browser.start_row_session(row["order"], ctx._shot_dir, bus, failure_shots=not row.get("sensitive"), ctx=ctx)
+            human.attach(bus, row["order"])
             module = _load_script_module(script_path)
             module.run(ctx)
             result["status"] = "pass"

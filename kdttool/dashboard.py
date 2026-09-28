@@ -18,7 +18,8 @@ import threading
 from types import SimpleNamespace
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from . import catalog_store, report, scriptgen
+from . import catalog, catalog_store, report, scriptgen
+from .workbench import WorkbenchError
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = os.path.dirname(__file__)
@@ -62,10 +63,14 @@ class RunControl:
 
 def _make_handler(st, port, token, replay, control):
     """`st` is a small holder with .bus and .run_dir: in wait mode they are swapped in
-    once Start is pressed (a run's folder is created then, not when the tool launched)."""
+    once Start is pressed (a run's folder is created then, not when the tool launched).
+    In workbench mode `st.workbench` is set and the page plays one test at a time."""
+    wb = getattr(st, "workbench", None)
 
     def run_is_live():
         """True while a run is executing: edits are refused then, so the runner never sees a half-changed catalog."""
+        if wb:
+            return wb.busy
         if replay:
             return False
         events, _ = st.bus.snapshot()
@@ -74,6 +79,10 @@ def _make_handler(st, port, token, replay, control):
             return False
         # Start pressed but the first event has not landed yet: already counts as running.
         return "run_start" in kinds or bool(control and control.start_event.is_set())
+
+    def export_dir():
+        """The run folder Export works on: the run itself, or in the workbench the last test played."""
+        return wb.last_run_dir if wb else st.run_dir
 
     class Handler(SimpleHTTPRequestHandler):
         def log_message(self, *args):
@@ -108,16 +117,24 @@ def _make_handler(st, port, token, replay, control):
                 return
 
             if route == "/api/catalog":
-                self._json(200, {"rows": catalog_store.public_rows(), "live": run_is_live(), "replay": replay})
+                from . import config
+                if not config.PROJECT_NAME:
+                    self._json(200, {"rows": [], "live": False, "replay": replay, "last_status": {}})
+                    return
+                self._json(200, {"rows": catalog_store.public_rows(), "live": run_is_live(), "replay": replay,
+                                 "last_status": catalog.load_last_status().get("status") or {}})
                 return
 
             if route == "/api/state":
                 from . import config
-                self._json(200, {
+                state = {
                     "waiting": bool(control and control.waiting), "headed": bool(control and control.headed),
                     "money": bool(control and control.money), "only": control.only if control else [],
                     "project": config.PROJECT_NAME, "base_url": config.BASE_URL, "boot": BOOT_ID,
-                })
+                }
+                if wb:
+                    state.update(wb.state())
+                self._json(200, state)
                 return
 
             if route == "/api/script":
@@ -148,12 +165,16 @@ def _make_handler(st, port, token, replay, control):
 
             if route.startswith("/shot/"):
                 rel = unquote(route[len("/shot/"):])
-                if not st.run_dir:
+                # Workbench: each played test has its own run folder, and its screenshot paths
+                # start with that run id, so serve from the project's reports/ folder.
+                from . import config
+                root = config.REPORTS_DIR if wb else st.run_dir
+                if not root:
                     self._send(404, b"not found", "text/plain")
                     return
-                full = os.path.realpath(os.path.join(st.run_dir, rel))
+                full = os.path.realpath(os.path.join(root, rel))
                 # Never serve outside the run directory, whatever the path says.
-                if not full.startswith(os.path.realpath(st.run_dir) + os.sep) or not os.path.isfile(full):
+                if not full.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(full):
                     self._send(404, b"not found", "text/plain")
                     return
                 with open(full, "rb") as f:
@@ -161,7 +182,7 @@ def _make_handler(st, port, token, replay, control):
                 return
 
             if route == "/export.zip":
-                zip_path = os.path.join(st.run_dir or "", "export.zip")
+                zip_path = os.path.join(export_dir() or "", "export.zip")
                 if not os.path.isfile(zip_path):
                     self._send(404, b"not found", "text/plain")
                     return
@@ -169,14 +190,14 @@ def _make_handler(st, port, token, replay, control):
                     body = f.read()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/zip")
-                self.send_header("Content-Disposition", f'attachment; filename="report_{os.path.basename(st.run_dir or "run")}.zip"')
+                self.send_header("Content-Disposition", f'attachment; filename="report_{os.path.basename(export_dir() or "run")}.zip"')
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
                 return
 
             if route.startswith("/export/"):
-                root = os.path.realpath(os.path.join(st.run_dir or "", "export"))
+                root = os.path.realpath(os.path.join(export_dir() or "", "export"))
                 full = os.path.realpath(os.path.join(root, unquote(route[len("/export/"):]) or "index.html"))
                 if not full.startswith(root + os.sep) or not os.path.isfile(full):
                     self._send(404, b"not found", "text/plain")
@@ -202,6 +223,35 @@ def _make_handler(st, port, token, replay, control):
 
             if route == "/export":
                 self._export()
+                return
+
+            if wb and route == "/api/tool/run":
+                try:
+                    self._json(200, wb.run_tool(str(body.get("id", "")), body.get("values") or {}))
+                except WorkbenchError as exc:
+                    self._json(409, {"error": str(exc)})
+                except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
+                    self._json(500, {"error": str(exc)})
+                return
+
+            if wb and route in ("/api/project/open", "/api/project/reset", "/api/step/play",
+                                "/api/step/continue", "/api/step/stop"):
+                try:
+                    if route == "/api/project/open":
+                        wb.open_project(body.get("name", ""))
+                    elif route == "/api/project/reset":
+                        wb.reset_project()
+                    elif route == "/api/step/play":
+                        wb.play(str(body.get("order", "")), money=bool(body.get("money")))
+                    elif route == "/api/step/continue":
+                        wb.resume()
+                    else:
+                        wb.stop()
+                    self._json(200, {"ok": True})
+                except WorkbenchError as exc:
+                    self._json(409, {"error": str(exc)})
+                except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
+                    self._json(500, {"error": str(exc)})
                 return
 
             if route == "/api/run/start":
@@ -243,10 +293,11 @@ def _make_handler(st, port, token, replay, control):
                 self._json(500, {"error": str(exc)})
 
         def _export(self):
-            if not st.run_dir:
-                self._json(409, {"error": "Nothing to export yet: start the run first."})
+            if not export_dir():
+                self._json(409, {"error": "Nothing to export yet: play a test first." if wb
+                                 else "Nothing to export yet: start the run first."})
                 return
-            run_id = os.path.basename(st.run_dir)
+            run_id = os.path.basename(export_dir())
             try:
                 built = report.export_folder(run_id)
             except Exception as exc:  # noqa: BLE001
@@ -261,13 +312,13 @@ def _make_handler(st, port, token, replay, control):
     return Handler
 
 
-def start(bus, run_dir, port, replay=False, control=None):
+def start(bus, run_dir, port, replay=False, control=None, workbench=None):
     """Serve the dashboard on a daemon thread. Returns (server, url).
     `replay` marks a finished run being reopened: catalog edits are always allowed there.
     `control` (a RunControl) makes the page show a Start button; the caller then sets
     `server.state.bus` / `server.state.run_dir` once the run really begins."""
     token = secrets.token_urlsafe(24)
-    st = SimpleNamespace(bus=bus, run_dir=run_dir)
+    st = SimpleNamespace(bus=bus, run_dir=run_dir, workbench=workbench)
     server = _ThreadingHTTPServer(("127.0.0.1", port), _make_handler(st, port, token, replay, control))
     server.state = st
     thread = threading.Thread(target=server.serve_forever, daemon=True)

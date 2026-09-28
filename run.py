@@ -2,6 +2,8 @@
 """KD-TTOOL master runner.
 
 Usage:
+  python run.py                                      # workbench: pick a project, play tests one at a time
+  python run.py --hub --project demo                 # workbench with a project already open
   python run.py --project example                    # everything except money-tier + manual rows
   python run.py --project example --only 01,02        # just these catalog rows
   python run.py --project example --headed           # watch it in a real Chrome window
@@ -40,7 +42,7 @@ from kdttool.runner import run_all
 DEFAULT_PROJECT = "example"
 
 
-def _serve(bus, run_dir, port, open_browser, replay=False, control=None):
+def _serve(bus, run_dir, port, open_browser, replay=False, control=None, workbench=None):
     """Start the dashboard, falling forward to the next free port if needed.
 
     A dashboard left running from an earlier run (or a --replay you forgot to
@@ -53,7 +55,7 @@ def _serve(bus, run_dir, port, open_browser, replay=False, control=None):
     for attempt in range(10):
         candidate = port + attempt
         try:
-            server, url = dashboard.start(bus, run_dir, candidate, replay=replay, control=control)
+            server, url = dashboard.start(bus, run_dir, candidate, replay=replay, control=control, workbench=workbench)
         except OSError:
             continue
         if attempt:
@@ -119,20 +121,46 @@ def _demo(port):
     return 0
 
 
+def _workbench(port, project=None):
+    """The long-running tool: the dashboard stays up, you pick a project and press Play on one
+    test at a time; each test runs in its own visible browser (see kdttool/workbench.py)."""
+    from kdttool.workbench import Workbench
+    bus = EventBus()
+    wb = Workbench(bus)
+    if project:
+        wb.open_project(project)
+    server, url = _serve(bus, None, port, open_browser=True, workbench=wb)
+    if not server:
+        return 1
+    print("Workbench ready: pick a project, then press Play on a test. Ctrl-C to quit.", flush=True)
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        print()
+        if wb.busy:
+            wb.stop()
+    return 0
+
+
 def main():
     # --project must be known before the rest of the CLI is built, because the
     # project supplies defaults (dashboard port) and the catalog the flags refer to.
     pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--project", default=DEFAULT_PROJECT)
+    pre.add_argument("--project")
     pre.add_argument("--list-projects", action="store_true")
     pre.add_argument("--demo", action="store_true")
-    known, _ = pre.parse_known_args()
+    pre.add_argument("--hub", action="store_true")
+    pre.add_argument("--port", type=int, default=config.DASHBOARD_PORT)
+    known, rest = pre.parse_known_args()
     if known.demo:
         known.project = "example"  # demo borrows the tracked example project; it never runs its catalog
     if known.list_projects:
         print("\n".join(config.available_projects()) or "(no projects)")
         return
-    config.activate(known.project)
+    if known.hub or (not known.project and not rest):
+        sys.exit(_workbench(known.port, known.project))
+    config.activate(known.project or DEFAULT_PROJECT)
 
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--project", default=DEFAULT_PROJECT, help="Project folder under projects/ (default %(default)s).")
@@ -157,6 +185,8 @@ def main():
     parser.add_argument("--export", metavar="RUN_ID", help="Build a standalone report folder + zip for a run; runs nothing.")
     parser.add_argument("--demo", action="store_true", help="Play a made-up run in the dashboard (no real site, no catalog) to evaluate the UI.")
     parser.add_argument("--replay", metavar="RUN_ID", help="Serve a past run's dashboard and exit; runs nothing.")
+    parser.add_argument("--hub", action="store_true", help="Workbench: keep the dashboard open and play tests one at a time (the default with no --project).")
+    parser.add_argument("--run-id", help=argparse.SUPPRESS)  # set by the workbench so it knows which folder to follow
     args = parser.parse_args()
 
     if args.demo:
@@ -209,7 +239,7 @@ def main():
         config.HEADLESS = not control.headed
         print("Starting the run…", flush=True)
 
-    run_id = time.strftime("%Y-%m-%d_%H%M%S")
+    run_id = args.run_id or time.strftime("%Y-%m-%d_%H%M%S")
     run_dir = config.run_dir(run_id)
     os.makedirs(run_dir, exist_ok=True)
     bus = EventBus(jsonl_path=os.path.join(run_dir, "events.jsonl"))
@@ -235,8 +265,8 @@ def main():
     report_path = report.write_report(results, run_id, manual_reminders)
 
     status_by_order = {r["order"]: r["status"] for r in results}
-    catalog.save_last_status(status_by_order, run_id, report_path)
-    catalog_path = catalog.write_catalog_md(status_by_order=status_by_order, run_timestamp=run_id)
+    all_statuses = catalog.save_last_status(status_by_order, run_id, report_path)
+    catalog_path = catalog.write_catalog_md(status_by_order=all_statuses, run_timestamp=run_id)
 
     passed = sum(1 for r in results if r["status"] == "pass")
     failed = sum(1 for r in results if r["status"] == "fail")

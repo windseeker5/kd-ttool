@@ -29,6 +29,47 @@ python -m venv venv
 ./venv/bin/python run.py --project example        # runs the bundled example against example.com
 ```
 
+### Workbench: play one test at a time
+
+```bash
+./venv/bin/python run.py                          # opens the dashboard with a project picker
+./venv/bin/python run.py --hub --project demo     # same, with a project already open
+```
+
+Pick a project at the top, then press ▶ on any test. Each test runs on its own, in a new visible
+browser window, and its steps and screenshots stream into the page. Results are kept per test
+(`reports/last_status.json` is merged, not replaced), so you can play them in any order.
+
+- **Real-money tests** ask you to confirm before they start.
+- **Tests that need you** (typing a real card, sending an e-transfer) show a *Waiting for you* box
+  with a **Continue** button. Scripts pause with `from kdttool.human import pause; pause("…")`.
+- **Stop test** ends a running test and closes its browser.
+- **Start fresh** forgets the open project's last results and the ids its tests saved for each other
+  (`reports/last_status.json`, `.uat_state/*.json`), so you can replay from step 01. Past reports stay
+  on disk, and nothing on the site under test is changed: clean the site's own data first yourself.
+
+Each played test is also a normal run folder under `reports/`, with its own report.
+
+### Project tools: a form in front of an existing script
+
+A project can put buttons in the workbench's top bar that run a command-line script from a form,
+instead of answering its prompts in a terminal. Declare them in `project.py`:
+
+```python
+TOOLS = [dict(
+    id="interac", title="Simulate Interac payment",
+    intro="Shown at the top of the form.",
+    command=["/path/to/send_test_payment_email.py"],      # a .py runs with this tool's Python
+    answers=["name", "amount", "reply_to", "message"],     # typed on stdin, one per line, in this order
+    env={"TEST_PAYMENT_RECIPIENT": "{to}"},                 # extra env vars; {field} = a form value
+    success_text="Email sent!",                             # must appear in the output to count as sent
+    fields=[dict(name="name", label="Sender name", default="Ken Dresdell", required=True), ...],
+)]
+```
+
+The script itself is not changed: it runs with no shell, its answers are typed in for it, and its
+output is shown in the form (✅ Sent / ❌ Not sent).
+
 Common options:
 
 ```bash
