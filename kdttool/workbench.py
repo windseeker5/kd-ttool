@@ -23,7 +23,7 @@ import sys
 import threading
 import time
 
-from . import catalog_store, config
+from . import catalog_store, config, project_io
 
 RUN_PY = os.path.join(config.ROOT_DIR, "run.py")
 
@@ -41,6 +41,10 @@ class Workbench:
         self.run_id = None
         self.paused = None          # the pause message while a test waits for a person
         self.last_run_dir = None    # the most recent step's run folder (for Export)
+        # The environment before any project's .env was loaded. Each project.py loads its .env
+        # into os.environ, and load_dotenv never overwrites a variable already set: without this,
+        # a project opened after another would run with the first one's passwords.
+        self.base_env = dict(os.environ)
 
     # ----------------------------------------------------------------- state
     @property
@@ -51,7 +55,9 @@ class Workbench:
         return {
             "hub": True, "projects": config.available_projects(), "busy": self.busy,
             "running": self.order if self.busy else None, "paused": self.paused if self.busy else None,
-            "tools": self.tools() if config.PROJECT_NAME else [],
+            "project_dir": config.PROJECT_DIR,
+            "needs_env": bool(config.PROJECT_NAME) and project_io.needs_env(config.PROJECT_DIR),
+            "env_fields": project_io.env_fields(config.PROJECT_DIR) if config.PROJECT_NAME else [],
         }
 
     # ------------------------------------------------------------ projects
@@ -61,9 +67,60 @@ class Workbench:
                 raise WorkbenchError("A test is running. Wait for it to finish (or stop it) before switching project.")
             if name not in config.available_projects():
                 raise WorkbenchError(f"Unknown project {name!r}.")
-            config.activate(name)
+            self._activate(name)
+            project_io.remember_last(name)
             self.last_run_dir = None
             self.bus.emit("project_open", project=name, base_url=config.BASE_URL)
+
+    def _activate(self, name):
+        os.environ.clear()
+        os.environ.update(self.base_env)
+        # Reopening the same project (after an import replaced it): forget its cached modules too.
+        for mod_name in list(sys.modules):
+            if mod_name in ("catalog_data", "helpers") or mod_name.startswith("helpers."):
+                del sys.modules[mod_name]
+        try:
+            config.activate(name)
+        except SystemExit as exc:  # activate() speaks to the command line; here, tell the page
+            raise WorkbenchError(str(exc))
+        except Exception as exc:  # noqa: BLE001 - a broken project.py
+            raise WorkbenchError(f"Could not open {name}: {exc}")
+
+    def import_project(self, data, filename=""):
+        """Open a project .zip (File > Open project). Returns the project's name."""
+        with self._lock:
+            if self.busy:
+                raise WorkbenchError("A test is running. Wait for it to finish before opening another project.")
+        name = project_io.import_zip(data, filename)
+        self.open_project(name)
+        return name
+
+    def new_project(self, name, base_url):
+        """Create an empty project and open it. Returns its name."""
+        with self._lock:
+            if self.busy:
+                raise WorkbenchError("A test is running. Wait for it to finish before opening another project.")
+        name = project_io.new_project(name, base_url)
+        self.open_project(name)
+        return name
+
+    def save_env(self, values):
+        """Write the open project's .env from the password form, then reload the project with it."""
+        self._edit_open_project(lambda: project_io.write_env(config.PROJECT_DIR, values))
+
+    def save_settings(self, base_url):
+        """Change the open project's site address (project.json), then reload the project."""
+        self._edit_open_project(lambda: project_io.save_settings(config.PROJECT_DIR, base_url))
+
+    def _edit_open_project(self, change):
+        with self._lock:
+            if not config.PROJECT_NAME:
+                raise WorkbenchError("Open a project first.")
+            if self.busy:
+                raise WorkbenchError("A test is running. Try again once it has finished.")
+            change()
+            self._activate(config.PROJECT_NAME)
+            self.bus.emit("project_open", project=config.PROJECT_NAME, base_url=config.BASE_URL)
 
     def reset_project(self):
         """Start the open project fresh: forget every test's last result (reports/last_status.json)
@@ -87,58 +144,10 @@ class Workbench:
             self.last_run_dir = None
             self.bus.emit("project_open", project=config.PROJECT_NAME, base_url=config.BASE_URL, fresh=True)
 
-    # --------------------------------------------------------------- tools
-    def tools(self):
-        """The open project's TOOLS, as the page needs them (no command/env details)."""
-        return [
-            {"id": t["id"], "title": t["title"], "intro": t.get("intro", ""), "next": t.get("next", ""),
-             "fields": [dict(f) for f in t.get("fields", [])]}
-            for t in (getattr(config, "TOOLS", None) or [])
-        ]
-
-    def run_tool(self, tool_id, values):
-        """Run a project tool: an existing command-line script, answered from a form.
-
-        The script is started exactly as a person would in a terminal: no shell, and the form's
-        answers typed on stdin one per line in `answers` order. `env` values may use {field}
-        placeholders. Returns {"ok": bool, "output": str}.
-        """
-        tool = next((t for t in (getattr(config, "TOOLS", None) or []) if t["id"] == tool_id), None)
-        if tool is None:
-            raise WorkbenchError(f"No tool {tool_id!r} in {config.PROJECT_NAME}.")
-        clean = {}
-        for field in tool.get("fields", []):
-            # One line per answer: a pasted newline must never become an extra answer.
-            value = " ".join(str(values.get(field["name"], "")).split())
-            if field.get("required") and not value:
-                raise WorkbenchError(f"{field['label']} is required.")
-            clean[field["name"]] = value
-
-        command = list(tool["command"])
-        if not os.path.isfile(command[0]) and command[0].endswith(".py"):
-            raise WorkbenchError(f"Script not found: {command[0]}")
-        if command[0].endswith(".py"):
-            command.insert(0, sys.executable)
-        env = dict(os.environ)
-        for key, template in (tool.get("env") or {}).items():
-            env[key] = template.format(**clean)
-        answers = "".join(clean.get(name, "") + "\n" for name in tool.get("answers", []))
-        try:
-            done = subprocess.run(command, input=answers, capture_output=True, text=True,
-                                  env=env, timeout=tool.get("timeout_s", 60), cwd=os.path.dirname(command[-1]))
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "output": f"The script did not finish within {tool.get('timeout_s', 60)} seconds."}
-        output = (done.stdout or "") + (("\n" + done.stderr) if done.stderr else "")
-        ok = done.returncode == 0 and (not tool.get("success_text") or tool["success_text"] in output)
-        return {"ok": ok, "output": output.strip()}
-
     # ---------------------------------------------------------------- play
     def play(self, order, money=False):
         with self._lock:
-            if not config.PROJECT_NAME:
-                raise WorkbenchError("Open a project first.")
-            if self.busy:
-                raise WorkbenchError(f"Test {self.order} is still running. One test at a time.")
+            self._check_can_play()
             row = catalog_store.find_row(order)
             if row is None:
                 raise WorkbenchError(f"No test {order!r} in {config.PROJECT_NAME}.")
@@ -147,19 +156,43 @@ class Workbench:
             if row.get("money") and not money:
                 raise WorkbenchError("This test moves real money: confirm it before it runs.")
 
-            run_id = f"{time.strftime('%Y-%m-%d_%H%M%S')}_{order}"
-            reports_dir = config.REPORTS_DIR
-            cmd = [sys.executable, RUN_PY, "--project", config.PROJECT_NAME, "--only", order,
-                   "--no-dashboard", "--headed", "--run-id", run_id]
-            if money:
-                cmd.append("--confirm-money")
-            # stdin is a pipe so Continue can answer a pause; stdout stays on this terminal.
-            # A new session, so Stop can end the test's whole process group (Playwright's browser too).
-            self.proc = subprocess.Popen(cmd, cwd=config.ROOT_DIR, stdin=subprocess.PIPE, text=True,
-                                         start_new_session=True)
-            self.order, self.run_id, self.paused = order, run_id, None
-            self.last_run_dir = os.path.join(reports_dir, run_id)
-            threading.Thread(target=self._tail, args=(self.proc, order, run_id, reports_dir), daemon=True).start()
+            self._launch(order, ["--only", order], money)
+
+    def play_all(self, money=False, only=None):
+        """Every test of the open project (or just the `only` ones), in catalog order, as ONE run
+        (one process, one report). Real-money tests run only with `money` (else they are skipped),
+        and the first failure skips the rest: the tests build on each other."""
+        with self._lock:
+            self._check_can_play()
+            args = ["--stop-on-fail"]
+            if only:
+                known = {r["order"] for r in config.CATALOG if not r.get("manual")}
+                bad = [o for o in only if o not in known]
+                if bad:
+                    raise WorkbenchError(f"Not a test that can be played: {', '.join(bad)}.")
+                args += ["--only", ",".join(only)]
+            self._launch(None, args, money)
+
+    def _check_can_play(self):
+        if not config.PROJECT_NAME:
+            raise WorkbenchError("Open a project first.")
+        if self.busy:
+            raise WorkbenchError("A test is still running. One run at a time.")
+
+    def _launch(self, order, args, money):
+        run_id = f"{time.strftime('%Y-%m-%d_%H%M%S')}_{order or 'all'}"
+        reports_dir = config.REPORTS_DIR
+        cmd = [sys.executable, RUN_PY, "--project", config.PROJECT_NAME, *args,
+               "--no-dashboard", "--headed", "--run-id", run_id]
+        if money:
+            cmd.append("--confirm-money")
+        # stdin is a pipe so Continue can answer a pause; stdout stays on this terminal.
+        # A new session, so Stop can end the test's whole process group (Playwright's browser too).
+        self.proc = subprocess.Popen(cmd, cwd=config.ROOT_DIR, stdin=subprocess.PIPE, text=True,
+                                     start_new_session=True)
+        self.order, self.run_id, self.paused = order, run_id, None
+        self.last_run_dir = os.path.join(reports_dir, run_id)
+        threading.Thread(target=self._tail, args=(self.proc, order, run_id, reports_dir), daemon=True).start()
 
     def resume(self):
         if not self.busy or self.paused is None:
@@ -180,6 +213,7 @@ class Workbench:
 
     # ---------------------------------------------------------------- tail
     def _tail(self, proc, order, run_id, reports_dir):
+        """`order` is None for Run all: the test in progress is then the last row_start seen."""
         path = os.path.join(reports_dir, run_id, "events.jsonl")
         offset, buffer, row_ended = 0, "", False
         while True:
@@ -198,14 +232,17 @@ class Workbench:
                         event = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    row_ended |= event.get("kind") == "row_end"
+                    if event.get("kind") == "row_start":
+                        order, row_ended = event.get("order"), False
+                        self.order = order
+                    row_ended |= event.get("kind") == "row_end" and event.get("order") == order
                     self._forward(event, run_id)
             if exited:
                 break
             time.sleep(0.3)
 
         self.paused = None
-        if not row_ended:
+        if order and not row_ended:
             # Stopped from the page, or the process died before reporting a result.
             stopped = proc.returncode in (-signal.SIGTERM, 143)
             self.bus.emit("row_end", order=order, run_id=run_id, status="fail", duration_s=0.0,

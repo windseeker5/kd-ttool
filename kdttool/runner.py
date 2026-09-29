@@ -42,6 +42,7 @@ class Context:
         # apart, and an old run's evidence is never overwritten by a later one.
         self._shot_dir = os.path.join(config.run_dir(run_id), row_dir_name(order, script_name))
         self._shot_count = 0
+        self._resizing = False  # a multi-viewport screenshot is in progress
 
     def note(self, message):
         self._notes.append(message)
@@ -58,21 +59,28 @@ class Context:
         """Save a numbered screenshot. With config.SCREENSHOT_VIEWPORTS set, one per viewport
         (label_desktop, label_mobile, ...): the page is resized for each and restored after."""
         wanted = [v for v in (config.SCREENSHOT_VIEWPORTS or ()) if v in config.VIEWPORTS]
-        original = page.viewport_size
-        if len(wanted) < 2 or not original:
+        # The page's own size is the one it was opened at, not whatever size it has right now.
+        original = getattr(page, "_kd_viewport", None) or page.viewport_size
+        # A modal can open while another screenshot has the page resized: the automatic modal
+        # picture then fires INSIDE that screenshot (Playwright runs event handlers during a
+        # wait). Resizing again from in there would leave the page at the wrong size afterwards,
+        # so a nested picture is one plain shot at the current size.
+        if len(wanted) < 2 or not original or self._resizing:
             return self._shoot(page, label, full_page)
         current = next((name for name, size in config.VIEWPORTS.items()
                         if size["width"] == original["width"] and size["height"] == original["height"]), None)
-        # The page's own size first (no resize), then the others.
+        # The page's own size first, then the others.
         order = ([current] if current in wanted else []) + [v for v in wanted if v != current]
         paths = []
+        self._resizing = True
         try:
             for name in order:
-                if name != current:
+                if page.viewport_size != config.VIEWPORTS[name]:
                     page.set_viewport_size(config.VIEWPORTS[name])
                     page.wait_for_timeout(400)  # let the responsive layout settle
                 paths.append(self._shoot(page, f"{label}_{name}", full_page))
         finally:
+            self._resizing = False
             if page.viewport_size != original:
                 page.set_viewport_size(original)
                 page.wait_for_timeout(200)
@@ -142,12 +150,16 @@ def _prune_traces(results, run_id):
     return removed
 
 
-def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces=False):
+def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces=False, stop_on_fail=False):
     """Run every non-manual catalog row in order (optionally filtered to `only`
     order values). Returns (results, manual_reminders, run_id).
+
+    `stop_on_fail`: once a row fails, the rows after it are skipped instead of run. Rows share
+    ids through .uat_state/, so after a failure the later ones would only fail for the same reason.
     """
     results = []
     manual_reminders = []
+    failed_at = None
     run_id = run_id or time.strftime("%Y-%m-%d_%H%M%S")
 
     planned = [
@@ -183,6 +195,15 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
             order=row["order"], script=row["script"], area=row["area"],
             status="skipped", duration_s=0.0, error=None, screenshots=[], notes=[],
         )
+
+        if failed_at:
+            result["notes"].append(f"Skipped: test {failed_at} failed before it.")
+            print(f"[{row['order']}] {row['area']} ... SKIPPED (test {failed_at} failed)")
+            if bus:
+                bus.emit("row_end", order=row["order"], status="skipped",
+                         duration_s=0.0, reason=f"test {failed_at} failed before it")
+            results.append(result)
+            continue
 
         if row["money"] and not money_confirmed:
             result["status"] = "skipped"
@@ -241,6 +262,8 @@ def run_all(only=None, money_confirmed=False, bus=None, run_id=None, keep_traces
                      trace_dir=row_dir_name(row["order"], row["script"]))
 
         results.append(result)
+        if stop_on_fail and result["status"] == "fail":
+            failed_at = row["order"]
 
     if not keep_traces:
         _prune_traces(results, run_id)

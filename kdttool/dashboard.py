@@ -18,7 +18,7 @@ import threading
 from types import SimpleNamespace
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import ThreadingMixIn
-from . import catalog, catalog_store, report, scriptgen
+from . import catalog, catalog_store, project_io, report, scriptgen
 from .workbench import WorkbenchError
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -214,6 +214,9 @@ def _make_handler(st, port, token, replay, control):
             if not self._host_ok() or self.headers.get("X-KD-Token") != token:
                 self._json(403, {"error": "Forbidden."})
                 return
+            if wb and route == "/api/project/import":
+                self._import_project()
+                return
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = json.loads(self.rfile.read(length) or b"{}") if length else {}
@@ -225,17 +228,36 @@ def _make_handler(st, port, token, replay, control):
                 self._export()
                 return
 
-            if wb and route == "/api/tool/run":
+            if wb and route == "/api/project/export":
+                name = str(body.get("name", ""))
                 try:
-                    self._json(200, wb.run_tool(str(body.get("id", "")), body.get("values") or {}))
-                except WorkbenchError as exc:
+                    data = project_io.export_zip(name)
+                except project_io.ProjectIOError as exc:
+                    self._json(404, {"error": str(exc)})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Disposition", f'attachment; filename="{name}.zip"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+            if wb and route in ("/api/project/env", "/api/project/settings", "/api/project/new"):
+                try:
+                    if route == "/api/project/env":
+                        wb.save_env(body.get("values") or {})
+                    elif route == "/api/project/settings":
+                        wb.save_settings(str(body.get("base_url", "")))
+                    else:
+                        wb.new_project(str(body.get("name", "")), str(body.get("base_url", "")))
+                    self._json(200, {"ok": True})
+                except (WorkbenchError, project_io.ProjectIOError) as exc:
                     self._json(409, {"error": str(exc)})
-                except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
-                    self._json(500, {"error": str(exc)})
                 return
 
             if wb and route in ("/api/project/open", "/api/project/reset", "/api/step/play",
-                                "/api/step/continue", "/api/step/stop"):
+                                "/api/step/play_all", "/api/step/continue", "/api/step/stop"):
                 try:
                     if route == "/api/project/open":
                         wb.open_project(body.get("name", ""))
@@ -243,6 +265,8 @@ def _make_handler(st, port, token, replay, control):
                         wb.reset_project()
                     elif route == "/api/step/play":
                         wb.play(str(body.get("order", "")), money=bool(body.get("money")))
+                    elif route == "/api/step/play_all":
+                        wb.play_all(money=bool(body.get("money")), only=[str(o) for o in body.get("only") or []])
                     elif route == "/api/step/continue":
                         wb.resume()
                     else:
@@ -265,7 +289,7 @@ def _make_handler(st, port, token, replay, control):
 
             editing = {
                 "/api/catalog/save", "/api/catalog/insert", "/api/script/rebuild",
-                "/api/script/approve",
+                "/api/script/approve", "/api/catalog/delete",
             }
             if route in editing and run_is_live():
                 self._json(409, {"error": "A run is in progress. Edit the catalog once it has finished."})
@@ -274,6 +298,9 @@ def _make_handler(st, port, token, replay, control):
                 if route == "/api/catalog/save":
                     row = catalog_store.save_row(body.get("order", ""), body.get("fields") or {})
                     self._json(200, {"row": row})
+                elif route == "/api/catalog/delete":
+                    catalog_store.delete_row(str(body.get("order", "")))
+                    self._json(200, {"ok": True})
                 elif route == "/api/catalog/insert":
                     row = catalog_store.insert_row(body.get("after"), body.get("fields") or {})
                     self._json(200, {"row": row})
@@ -288,6 +315,24 @@ def _make_handler(st, port, token, replay, control):
                 else:
                     self._json(404, {"error": "Not found."})
             except catalog_store.CatalogError as exc:
+                self._json(400, {"error": str(exc)})
+            except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
+                self._json(500, {"error": str(exc)})
+
+        def _import_project(self):
+            """The body is the zip itself; its file name and choices come in headers."""
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if not length or length > project_io.MAX_IMPORT_BYTES:
+                self._json(400, {"error": "Choose a project zip (at most 100 MB)."})
+                return
+            data = self.rfile.read(length)
+            try:
+                name = wb.import_project(data, unquote(self.headers.get("X-KD-Filename", "")))
+                self._json(200, {"name": name})
+            except (WorkbenchError, project_io.ProjectIOError) as exc:
                 self._json(400, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001 - tell the page, don't kill the server thread
                 self._json(500, {"error": str(exc)})
