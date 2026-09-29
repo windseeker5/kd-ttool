@@ -127,6 +127,9 @@ def _workbench(port, project=None):
     from kdttool.workbench import Workbench
     bus = EventBus()
     wb = Workbench(bus)
+    if not project:
+        from kdttool import project_io
+        project = project_io.last_project()   # reopen what was open last time
     if project:
         wb.open_project(project)
     server, url = _serve(bus, None, port, open_browser=True, workbench=wb)
@@ -180,6 +183,7 @@ def main():
     )
     parser.add_argument("--no-dashboard", action="store_true", help="Don't start or open the live dashboard.")
     parser.add_argument("--port", type=int, default=config.DASHBOARD_PORT, help="Dashboard port (default %(default)s).")
+    parser.add_argument("--stop-on-fail", action="store_true", help="Skip the remaining rows once one fails.")
     parser.add_argument("--keep-traces", action="store_true", help="Keep Playwright traces for passing rows too.")
     parser.add_argument("--report", metavar="RUN_ID", help="Rebuild a past run's report.html from its event log; runs nothing.")
     parser.add_argument("--export", metavar="RUN_ID", help="Build a standalone report folder + zip for a run; runs nothing.")
@@ -252,7 +256,7 @@ def main():
     try:
         results, manual_reminders, run_id = run_all(
             only=only, money_confirmed=args.confirm_money, bus=bus,
-            run_id=run_id, keep_traces=args.keep_traces,
+            run_id=run_id, keep_traces=args.keep_traces, stop_on_fail=args.stop_on_fail,
         )
     except BaseException:
         # Ctrl-C or a crash mid-run: the screenshots taken so far still get a report.

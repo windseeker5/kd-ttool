@@ -123,6 +123,23 @@ def save_row(order, fields):
         return dict(row, script_state=script_state(row))
 
 
+def delete_row(order):
+    """Remove a test from the catalog. Its script is moved into .history/ (never destroyed), and
+    the catalog itself is backed up there first by _write(), so a delete can always be undone."""
+    with _lock:
+        rows = [dict(r) for r in config.CATALOG]
+        row = next((r for r in rows if r["order"] == order), None)
+        if row is None:
+            raise CatalogError(f"No test {order!r} in the catalog.")
+        path = script_path(row)
+        if path and os.path.isfile(path) and not any(
+                r is not row and r.get("script") == row.get("script") for r in rows):
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            os.replace(path, os.path.join(history_dir(), f"{os.path.basename(path)}.{stamp}.deleted"))
+        rows.remove(row)
+        _write(rows)
+
+
 def _slug(text):
     return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")[:40] or "new_test"
 

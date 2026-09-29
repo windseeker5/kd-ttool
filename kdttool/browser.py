@@ -319,6 +319,8 @@ def _page_on(browser, viewport):
     if config.SCREENSHOT_MODALS and _session and _session.get("bus"):
         context.add_init_script(_MODAL_PROBE)
     page = context.new_page()
+    # The size this page was opened at: Context.screenshot() always puts the page back to it.
+    page._kd_viewport = dict(config.VIEWPORTS[viewport])
     _instrument(page, viewport)
     try:
         yield page

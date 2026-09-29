@@ -36,13 +36,19 @@ python -m venv venv
 ./venv/bin/python run.py --hub --project demo     # same, with a project already open
 ```
 
-Pick a project at the top, then press ▶ on any test. Each test runs on its own, in a new visible
+Use **File** at the top to open a project, then press ▶ on any test. Each test runs on its own, in a new visible
 browser window, and its steps and screenshots stream into the page. Results are kept per test
 (`reports/last_status.json` is merged, not replaced), so you can play them in any order.
 
+- **Save / Open a project .zip** (File menu): the zip holds only the catalog and tests (`project.py`,
+  catalog, `scripts/`, `helpers/`, `fixtures/`, `.env.example`). Results, reports, saved ids and passwords
+  (`.env`) are left out, so a zip opened on another machine starts fresh. A project with no `.env` asks for
+  its passwords, using `.env.example`.
 - **Real-money tests** ask you to confirm before they start.
 - **Tests that need you** (typing a real card, sending an e-transfer) show a *Waiting for you* box
   with a **Continue** button. Scripts pause with `from kdttool.human import pause; pause("…")`.
+- **Run all** (above the list) plays every test in order, in one browser window and one report. Real-money
+  tests are asked about once, up front, and the first failure skips the rest (they build on each other).
 - **Stop test** ends a running test and closes its browser.
 - **Start fresh** forgets the open project's last results and the ids its tests saved for each other
   (`reports/last_status.json`, `.uat_state/*.json`), so you can replay from step 01. Past reports stay
@@ -50,25 +56,17 @@ browser window, and its steps and screenshots stream into the page. Results are 
 
 Each played test is also a normal run folder under `reports/`, with its own report.
 
-### Project tools: a form in front of an existing script
+### The File menu
 
-A project can put buttons in the workbench's top bar that run a command-line script from a form,
-instead of answering its prompts in a terminal. Declare them in `project.py`:
-
-```python
-TOOLS = [dict(
-    id="interac", title="Simulate Interac payment",
-    intro="Shown at the top of the form.",
-    command=["/path/to/send_test_payment_email.py"],      # a .py runs with this tool's Python
-    answers=["name", "amount", "reply_to", "message"],     # typed on stdin, one per line, in this order
-    env={"TEST_PAYMENT_RECIPIENT": "{to}"},                 # extra env vars; {field} = a form value
-    success_text="Email sent!",                             # must appear in the output to count as sent
-    fields=[dict(name="name", label="Sender name", default="Ken Dresdell", required=True), ...],
-)]
-```
-
-The script itself is not changed: it runs with no shell, its answers are typed in for it, and its
-output is shown in the form (✅ Sent / ❌ Not sent).
+- **Open project (.zip)…**: the system file picker, project zips only. If that project is already on this
+  machine, its tests are updated from the zip and its passwords, results and saved ids are kept (the
+  previous test files go to `projects/.replaced/`). The tool reopens the last project when it starts.
+- **Save project as .zip**: downloads the open project's tests (see below).
+- **New project…**: a name and the site address; creates an empty project to add tests to.
+- **Project settings…**: the site address the tests run against, saved in `projects/<name>/project.json`
+  (it overrides `BASE_URL` in `project.py`). Nothing about a project is built into the tool's screen:
+  anything specific to one site belongs in that project's tests.
+- **Passwords…**: the project's `.env`, one box per name listed in `.env.example`.
 
 Common options:
 

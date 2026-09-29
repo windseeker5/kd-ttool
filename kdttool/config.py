@@ -4,9 +4,10 @@ The engine never hard-codes a target. `activate("<project>")` (called once by
 run.py) imports `projects/<project>/project.py` and copies every UPPER_CASE name
 it defines onto this module, so engine code and project scripts both read
 `config.BASE_URL`, `config.ADMIN_EMAIL`, `config.CATALOG` ... at call time.
+The site address set from the tool (projects/<project>/project.json) overrides BASE_URL.
 
 A project may override any default below (VIEWPORTS, HEADLESS, DASHBOARD_PORT,
-CATALOG_INTRO, ...). Names a project must provide: BASE_URL, CATALOG.
+CATALOG_INTRO, ...). Names a project must provide: CATALOG, and BASE_URL unless project.json has it.
 """
 
 import importlib.util
@@ -128,13 +129,22 @@ def activate(name):
     if saved is not None:
         module.CATALOG = saved
 
-    if not module.BASE_URL or not module.CATALOG:
-        raise SystemExit(f"projects/{name}/project.py must define BASE_URL and CATALOG.")
+    # The site address set in the tool (project.json, File > Project settings) wins over project.py.
+    settings = _load_json(os.path.join(project_dir, "project.json")) or {}
+    module.BASE_URL = (settings.get("base_url") or getattr(module, "BASE_URL", "") or "").rstrip("/")
+
+    # An empty catalog is fine: a new project starts with no tests.
+    if not module.BASE_URL or not isinstance(getattr(module, "CATALOG", None), list):
+        raise SystemExit(f"projects/{name} needs a site address (project.json or BASE_URL in project.py) "
+                         f"and a CATALOG list.")
 
 
 def _load_saved_catalog(project_dir):
+    return _load_json(os.path.join(project_dir, "catalog.json"))
+
+
+def _load_json(path):
     import json
-    path = os.path.join(project_dir, "catalog.json")
     if not os.path.isfile(path):
         return None
     with open(path) as f:
